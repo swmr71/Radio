@@ -32,8 +32,13 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  fileFilter: (req, file, cb) => {
-    const allowedMimes = ['audio/mpeg', 'audio/mp4', 'audio/wav', 'audio/ogg', 'audio/webm'];
+  const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid audio file type'));
+    }
+  };
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {

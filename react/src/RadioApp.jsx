@@ -9,6 +9,7 @@ export default function RadioApp() {
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchEpisodes();
@@ -26,7 +27,10 @@ export default function RadioApp() {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!uploadFile || !episodeTitle) return;
+    if (!uploadFile || !episodeTitle) {
+      alert('タイトルと音声ファイルを選択してください');
+      return;
+    }
 
     setUploading(true);
     const formData = new FormData();
@@ -39,14 +43,21 @@ export default function RadioApp() {
         method: 'POST',
         body: formData,
       });
-      if (res.ok) {
-        setUploadFile(null);
-        setEpisodeTitle('');
-        setEpisodeDesc('');
-        await fetchEpisodes();
+      
+      if (!res.ok) {
+        const error = await res.json();
+        alert(`アップロード失敗: ${error.error}`);
+        return;
       }
+
+      alert('アップロード成功！');
+      setUploadFile(null);
+      setEpisodeTitle('');
+      setEpisodeDesc('');
+      await fetchEpisodes();
     } catch (error) {
       console.error('Upload failed:', error);
+      alert(`エラー: ${error.message}`);
     } finally {
       setUploading(false);
     }
@@ -155,15 +166,24 @@ export default function RadioApp() {
 
           <div style={styles.formGroup}>
             <label style={styles.label}>音声ファイル</label>
-            <input
-              type="file"
-              accept="audio/*"
-              onChange={(e) => setUploadFile(e.target.files[0])}
-              style={styles.fileInput}
-            />
-            {uploadFile && (
-              <p style={styles.fileName}>📄 {uploadFile.name}</p>
-            )}
+            <div 
+              style={styles.fileInputWrapper}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                onChange={(e) => {
+                  console.log('File selected:', e.target.files[0]);
+                  setUploadFile(e.target.files[0]);
+                }}
+                style={styles.fileInput}
+              />
+              <span style={styles.fileInputPlaceholder}>
+                {uploadFile ? `📄 ${uploadFile.name}` : 'ファイルを選択...'}
+              </span>
+            </div>
           </div>
 
           <button
@@ -343,8 +363,22 @@ const styles = {
     resize: 'vertical',
   },
   fileInput: {
-    padding: '0.5rem',
-    fontSize: '0.95rem',
+    display: 'none',
+  },
+  fileInputWrapper: {
+    position: 'relative',
+    display: 'inline-block',
+    width: '100%',
+  },
+  fileInputPlaceholder: {
+    display: 'block',
+    padding: '0.75rem',
+    fontSize: '1rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    backgroundColor: '#f9fafb',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
   },
   fileName: {
     fontSize: '0.9rem',
