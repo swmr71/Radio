@@ -63,7 +63,7 @@ db.serialize(() => {
 
 // ミドルウェア
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'dist')));
 app.use('/audio', express.static(audioDir));
 
 // ============ API Endpoints ============
@@ -161,6 +161,11 @@ app.get('/api/episodes/:id', (req, res) => {
       res.json(row);
     }
   );
+});
+
+// SPA用のフォールバック（最後に配置）
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 // エラーハンドリング
