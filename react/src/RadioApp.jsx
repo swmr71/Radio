@@ -1,0 +1,436 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+export default function RadioApp() {
+  const [episodes, setEpisodes] = useState([]);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [episodeTitle, setEpisodeTitle] = useState('');
+  const [episodeDesc, setEpisodeDesc] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [currentEpisode, setCurrentEpisode] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    fetchEpisodes();
+  }, []);
+
+  const fetchEpisodes = async () => {
+    try {
+      const res = await fetch('/api/episodes');
+      const data = await res.json();
+      setEpisodes(data);
+    } catch (error) {
+      console.error('Failed to fetch episodes:', error);
+    }
+  };
+
+  const handleUpload = async (e) => {
+    e.preventDefault();
+    if (!uploadFile || !episodeTitle) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('title', episodeTitle);
+    formData.append('description', episodeDesc);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        setUploadFile(null);
+        setEpisodeTitle('');
+        setEpisodeDesc('');
+        await fetchEpisodes();
+      }
+    } catch (error) {
+      console.error('Upload failed:', error);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const playEpisode = (episode) => {
+    setCurrentEpisode(episode);
+    setIsPlaying(true);
+  };
+
+  const togglePlayPause = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('このエピソードを削除しますか？')) return;
+
+    try {
+      const res = await fetch(`/api/episodes/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await fetchEpisodes();
+        if (currentEpisode?.id === id) {
+          setCurrentEpisode(null);
+          setIsPlaying(false);
+        }
+      }
+    } catch (error) {
+      console.error('Delete failed:', error);
+    }
+  };
+
+  return (
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <h1 style={styles.title}>オンデマンドラジオ</h1>
+        <p style={styles.subtitle}>音声エピソードをアップロード＆再生</p>
+      </header>
+
+      {currentEpisode && (
+        <div style={styles.player}>
+          <div style={styles.playerInfo}>
+            <div>
+              <h2 style={styles.playerTitle}>{currentEpisode.title}</h2>
+              <p style={styles.playerDesc}>{currentEpisode.description}</p>
+              <p style={styles.playerDate}>
+                {new Date(currentEpisode.uploadedAt).toLocaleString('ja-JP')}
+              </p>
+            </div>
+          </div>
+          <audio
+            ref={audioRef}
+            src={`/audio/${currentEpisode.filename}`}
+            onEnded={() => setIsPlaying(false)}
+            style={styles.audio}
+          />
+          <div style={styles.playerControls}>
+            <button
+              onClick={togglePlayPause}
+              style={styles.playBtn}
+            >
+              {isPlaying ? '⏸ 一時停止' : '▶ 再生'}
+            </button>
+            <button
+              onClick={() => {
+                setCurrentEpisode(null);
+                setIsPlaying(false);
+              }}
+              style={styles.closeBtn}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div style={styles.uploadSection}>
+        <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
+        <form onSubmit={handleUpload} style={styles.form}>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>タイトル</label>
+            <input
+              type="text"
+              value={episodeTitle}
+              onChange={(e) => setEpisodeTitle(e.target.value)}
+              placeholder="エピソードのタイトルを入力"
+              style={styles.input}
+            />
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>説明</label>
+            <textarea
+              value={episodeDesc}
+              onChange={(e) => setEpisodeDesc(e.target.value)}
+              placeholder="エピソードの説明を入力（任意）"
+              style={styles.textarea}
+            />
+          </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>音声ファイル</label>
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={(e) => setUploadFile(e.target.files[0])}
+              style={styles.fileInput}
+            />
+            {uploadFile && (
+              <p style={styles.fileName}>📄 {uploadFile.name}</p>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={uploading || !uploadFile || !episodeTitle}
+            style={{
+              ...styles.submitBtn,
+              opacity: uploading || !uploadFile || !episodeTitle ? 0.5 : 1,
+              cursor: uploading || !uploadFile || !episodeTitle ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {uploading ? 'アップロード中...' : 'アップロード'}
+          </button>
+        </form>
+      </div>
+
+      <div style={styles.episodeListSection}>
+        <h2 style={styles.sectionTitle}>エピソード一覧</h2>
+        {episodes.length === 0 ? (
+          <p style={styles.emptyMessage}>エピソードがまだアップロードされていません</p>
+        ) : (
+          <div style={styles.episodeList}>
+            {episodes.map((ep) => (
+              <div key={ep.id} style={styles.episodeCard}>
+                <div style={styles.episodeCardContent}>
+                  <h3 style={styles.episodeTitle}>{ep.title}</h3>
+                  {ep.description && (
+                    <p style={styles.episodeCardDesc}>{ep.description}</p>
+                  )}
+                  <p style={styles.episodeDate}>
+                    {new Date(ep.uploadedAt).toLocaleString('ja-JP')}
+                  </p>
+                </div>
+                <div style={styles.episodeCardActions}>
+                  <button
+                    onClick={() => playEpisode(ep)}
+                    style={styles.playEpisodeBtn}
+                  >
+                    ▶ 再生
+                  </button>
+                  <button
+                    onClick={() => handleDelete(ep.id)}
+                    style={styles.deleteBtn}
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    maxWidth: '900px',
+    margin: '0 auto',
+    padding: '2rem',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+    backgroundColor: '#fafafa',
+    minHeight: '100vh',
+  },
+  header: {
+    marginBottom: '3rem',
+    textAlign: 'center',
+  },
+  title: {
+    fontSize: '2.5rem',
+    margin: '0 0 0.5rem 0',
+    color: '#1a1a1a',
+  },
+  subtitle: {
+    fontSize: '1rem',
+    color: '#666',
+    margin: 0,
+  },
+  player: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '1.5rem',
+    marginBottom: '2rem',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    border: '2px solid #4f46e5',
+  },
+  playerInfo: {
+    marginBottom: '1rem',
+  },
+  playerTitle: {
+    fontSize: '1.5rem',
+    margin: '0 0 0.5rem 0',
+    color: '#1a1a1a',
+  },
+  playerDesc: {
+    fontSize: '0.95rem',
+    color: '#666',
+    margin: '0.5rem 0',
+  },
+  playerDate: {
+    fontSize: '0.85rem',
+    color: '#999',
+    margin: '0.5rem 0 0 0',
+  },
+  audio: {
+    width: '100%',
+    marginBottom: '1rem',
+  },
+  playerControls: {
+    display: 'flex',
+    gap: '0.75rem',
+  },
+  playBtn: {
+    flex: 1,
+    padding: '0.75rem',
+    fontSize: '1rem',
+    fontWeight: '500',
+    backgroundColor: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  closeBtn: {
+    padding: '0.75rem 1rem',
+    fontSize: '1rem',
+    backgroundColor: '#e5e7eb',
+    color: '#1a1a1a',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+  },
+  uploadSection: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '2rem',
+    marginBottom: '2rem',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  },
+  sectionTitle: {
+    fontSize: '1.5rem',
+    marginTop: 0,
+    marginBottom: '1.5rem',
+    color: '#1a1a1a',
+  },
+  form: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1.5rem',
+  },
+  formGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  label: {
+    fontSize: '0.95rem',
+    fontWeight: '500',
+    color: '#1a1a1a',
+  },
+  input: {
+    padding: '0.75rem',
+    fontSize: '1rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    fontFamily: 'inherit',
+  },
+  textarea: {
+    padding: '0.75rem',
+    fontSize: '1rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    fontFamily: 'inherit',
+    minHeight: '80px',
+    resize: 'vertical',
+  },
+  fileInput: {
+    padding: '0.5rem',
+    fontSize: '0.95rem',
+  },
+  fileName: {
+    fontSize: '0.9rem',
+    color: '#666',
+    margin: '0.5rem 0 0 0',
+  },
+  submitBtn: {
+    padding: '0.75rem',
+    fontSize: '1rem',
+    fontWeight: '500',
+    backgroundColor: '#10b981',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  episodeListSection: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '2rem',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  },
+  emptyMessage: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: '1rem',
+    margin: '2rem 0',
+  },
+  episodeList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+  },
+  episodeCard: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '1.25rem',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    backgroundColor: '#fafafa',
+    transition: 'background-color 0.2s',
+  },
+  episodeCardContent: {
+    flex: 1,
+  },
+  episodeTitle: {
+    fontSize: '1.1rem',
+    fontWeight: '500',
+    margin: '0 0 0.5rem 0',
+    color: '#1a1a1a',
+  },
+  episodeCardDesc: {
+    fontSize: '0.9rem',
+    color: '#666',
+    margin: '0.5rem 0',
+  },
+  episodeDate: {
+    fontSize: '0.8rem',
+    color: '#999',
+    margin: '0.5rem 0 0 0',
+  },
+  episodeCardActions: {
+    display: 'flex',
+    gap: '0.5rem',
+    marginLeft: '1rem',
+  },
+  playEpisodeBtn: {
+    padding: '0.5rem 1rem',
+    fontSize: '0.9rem',
+    fontWeight: '500',
+    backgroundColor: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  deleteBtn: {
+    padding: '0.5rem 0.75rem',
+    fontSize: '0.9rem',
+    backgroundColor: '#fee2e2',
+    color: '#dc2626',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+};
