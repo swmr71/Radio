@@ -8,6 +8,7 @@ export default function RadioApp() {
   const [uploading, setUploading] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [activeTab, setActiveTab] = useState('player'); // 'player' or 'manage'
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -54,6 +55,9 @@ export default function RadioApp() {
       setUploadFile(null);
       setEpisodeTitle('');
       setEpisodeDesc('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       await fetchEpisodes();
     } catch (error) {
       console.error('Upload failed:', error);
@@ -65,7 +69,8 @@ export default function RadioApp() {
 
   const playEpisode = (episode) => {
     setCurrentEpisode(episode);
-    setIsPlaying(false); // 状態をリセット、プレイヤーボタンで手動再生
+    setIsPlaying(false);
+    setActiveTab('player'); // 再生ページに切り替え
   };
 
   const togglePlayPause = () => {
@@ -103,139 +108,217 @@ export default function RadioApp() {
         <p style={styles.subtitle}>音声エピソードをアップロード＆再生</p>
       </header>
 
-      {currentEpisode && (
-        <div style={styles.player}>
-          <div style={styles.playerInfo}>
-            <div>
-              <h2 style={styles.playerTitle}>{currentEpisode.title}</h2>
-              <p style={styles.playerDesc}>{currentEpisode.description}</p>
-              <p style={styles.playerDate}>
-                {new Date(currentEpisode.uploadedAt).toLocaleString('ja-JP')}
-              </p>
+      {/* タブナビゲーション */}
+      <div style={styles.tabNav}>
+        <button
+          style={{
+            ...styles.tabButton,
+            ...(activeTab === 'player' ? styles.tabButtonActive : styles.tabButtonInactive),
+          }}
+          onClick={() => setActiveTab('player')}
+        >
+          ▶ 再生
+        </button>
+        <button
+          style={{
+            ...styles.tabButton,
+            ...(activeTab === 'manage' ? styles.tabButtonActive : styles.tabButtonInactive),
+          }}
+          onClick={() => setActiveTab('manage')}
+        >
+          ⚙ 管理
+        </button>
+      </div>
+
+      {/* 再生ページ */}
+      {activeTab === 'player' && (
+        <div style={styles.pageContainer}>
+          {currentEpisode ? (
+            <div style={styles.player}>
+              <div style={styles.playerInfo}>
+                <div>
+                  <h2 style={styles.playerTitle}>{currentEpisode.title}</h2>
+                  <p style={styles.playerDesc}>{currentEpisode.description}</p>
+                  <p style={styles.playerDate}>
+                    {new Date(currentEpisode.uploadedAt).toLocaleString('ja-JP')}
+                  </p>
+                </div>
+              </div>
+              <audio
+                ref={audioRef}
+                src={`/audio/${currentEpisode.filename}`}
+                onEnded={() => setIsPlaying(false)}
+                style={styles.audio}
+              />
+              <div style={styles.playerControls}>
+                <button
+                  onClick={togglePlayPause}
+                  style={styles.playBtn}
+                >
+                  {isPlaying ? '⏸ 一時停止' : '▶ 再生'}
+                </button>
+                <button
+                  onClick={() => {
+                    setCurrentEpisode(null);
+                    setIsPlaying(false);
+                  }}
+                  style={styles.closeBtn}
+                >
+                  ✕ 閉じる
+                </button>
+              </div>
             </div>
-          </div>
-          <audio
-            ref={audioRef}
-            src={`/audio/${currentEpisode.filename}`}
-            onEnded={() => setIsPlaying(false)}
-            style={styles.audio}
-          />
-          <div style={styles.playerControls}>
-            <button
-              onClick={togglePlayPause}
-              style={styles.playBtn}
-            >
-              {isPlaying ? '⏸ 一時停止' : '▶ 再生'}
-            </button>
-            <button
-              onClick={() => {
-                setCurrentEpisode(null);
-                setIsPlaying(false);
-              }}
-              style={styles.closeBtn}
-            >
-              ✕
-            </button>
+          ) : (
+            <div style={styles.emptyState}>
+              <p style={styles.emptyMessage}>エピソードを選択してください</p>
+              <button
+                onClick={() => setActiveTab('manage')}
+                style={styles.switchTabBtn}
+              >
+                管理ページに移動
+              </button>
+            </div>
+          )}
+
+          <div style={styles.episodeListSection}>
+            <h2 style={styles.sectionTitle}>エピソード一覧</h2>
+            {episodes.length === 0 ? (
+              <p style={styles.emptyMessage}>エピソードがまだアップロードされていません</p>
+            ) : (
+              <div style={styles.episodeList}>
+                {episodes.map((ep) => (
+                  <div
+                    key={ep.id}
+                    style={{
+                      ...styles.episodeCard,
+                      ...(currentEpisode?.id === ep.id ? styles.episodeCardActive : {}),
+                    }}
+                  >
+                    <div style={styles.episodeCardContent}>
+                      <h3 style={styles.episodeTitle}>{ep.title}</h3>
+                      {ep.description && (
+                        <p style={styles.episodeCardDesc}>{ep.description}</p>
+                      )}
+                      <p style={styles.episodeDate}>
+                        {new Date(ep.uploadedAt).toLocaleString('ja-JP')}
+                      </p>
+                    </div>
+                    <div style={styles.episodeCardActions}>
+                      <button
+                        onClick={() => playEpisode(ep)}
+                        style={styles.playEpisodeBtn}
+                      >
+                        ▶ 再生
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      <div style={styles.uploadSection}>
-        <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
-        <form onSubmit={handleUpload} style={styles.form}>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>タイトル</label>
-            <input
-              type="text"
-              value={episodeTitle}
-              onChange={(e) => setEpisodeTitle(e.target.value)}
-              placeholder="エピソードのタイトルを入力"
-              style={styles.input}
-            />
-          </div>
+      {/* 管理ページ */}
+      {activeTab === 'manage' && (
+        <div style={styles.pageContainer}>
+          <div style={styles.uploadSection}>
+            <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
+            <form onSubmit={handleUpload} style={styles.form}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>タイトル</label>
+                <input
+                  type="text"
+                  value={episodeTitle}
+                  onChange={(e) => setEpisodeTitle(e.target.value)}
+                  placeholder="エピソードのタイトルを入力"
+                  style={styles.input}
+                />
+              </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>説明</label>
-            <textarea
-              value={episodeDesc}
-              onChange={(e) => setEpisodeDesc(e.target.value)}
-              placeholder="エピソードの説明を入力（任意）"
-              style={styles.textarea}
-            />
-          </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>説明</label>
+                <textarea
+                  value={episodeDesc}
+                  onChange={(e) => setEpisodeDesc(e.target.value)}
+                  placeholder="エピソードの説明を入力（任意）"
+                  style={styles.textarea}
+                />
+              </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>音声ファイル</label>
-            <div 
-              style={styles.fileInputWrapper}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="mp3"
-                onChange={(e) => {
-                  console.log('File selected:', e.target.files[0]);
-                  setUploadFile(e.target.files[0]);
-                }}
-                style={styles.fileInput}
-              />
-              <span style={styles.fileInputPlaceholder}>
-                {uploadFile ? `📄 ${uploadFile.name}` : 'ファイルを選択...'}
-              </span>
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={uploading || !uploadFile || !episodeTitle}
-            style={{
-              ...styles.submitBtn,
-              opacity: uploading || !uploadFile || !episodeTitle ? 0.5 : 1,
-              cursor: uploading || !uploadFile || !episodeTitle ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {uploading ? 'アップロード中...' : 'アップロード'}
-          </button>
-        </form>
-      </div>
-
-      <div style={styles.episodeListSection}>
-        <h2 style={styles.sectionTitle}>エピソード一覧</h2>
-        {episodes.length === 0 ? (
-          <p style={styles.emptyMessage}>エピソードがまだアップロードされていません</p>
-        ) : (
-          <div style={styles.episodeList}>
-            {episodes.map((ep) => (
-              <div key={ep.id} style={styles.episodeCard}>
-                <div style={styles.episodeCardContent}>
-                  <h3 style={styles.episodeTitle}>{ep.title}</h3>
-                  {ep.description && (
-                    <p style={styles.episodeCardDesc}>{ep.description}</p>
-                  )}
-                  <p style={styles.episodeDate}>
-                    {new Date(ep.uploadedAt).toLocaleString('ja-JP')}
-                  </p>
-                </div>
-                <div style={styles.episodeCardActions}>
-                  <button
-                    onClick={() => playEpisode(ep)}
-                    style={styles.playEpisodeBtn}
-                  >
-                    ▶ 再生
-                  </button>
-                  <button
-                    onClick={() => handleDelete(ep.id)}
-                    style={styles.deleteBtn}
-                  >
-                    🗑
-                  </button>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>音声ファイル</label>
+                <div 
+                  style={styles.fileInputWrapper}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      setUploadFile(e.target.files[0]);
+                    }}
+                    style={styles.fileInput}
+                  />
+                  <span style={styles.fileInputPlaceholder}>
+                    {uploadFile ? `📄 ${uploadFile.name}` : 'ファイルを選択...'}
+                  </span>
                 </div>
               </div>
-            ))}
+
+              <button
+                type="submit"
+                disabled={uploading || !uploadFile || !episodeTitle}
+                style={{
+                  ...styles.submitBtn,
+                  opacity: uploading || !uploadFile || !episodeTitle ? 0.5 : 1,
+                  cursor: uploading || !uploadFile || !episodeTitle ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {uploading ? 'アップロード中...' : 'アップロード'}
+              </button>
+            </form>
           </div>
-        )}
-      </div>
+
+          <div style={styles.episodeListSection}>
+            <h2 style={styles.sectionTitle}>エピソード管理</h2>
+            {episodes.length === 0 ? (
+              <p style={styles.emptyMessage}>エピソードがまだアップロードされていません</p>
+            ) : (
+              <div style={styles.episodeList}>
+                {episodes.map((ep) => (
+                  <div key={ep.id} style={styles.episodeCard}>
+                    <div style={styles.episodeCardContent}>
+                      <h3 style={styles.episodeTitle}>{ep.title}</h3>
+                      {ep.description && (
+                        <p style={styles.episodeCardDesc}>{ep.description}</p>
+                      )}
+                      <p style={styles.episodeDate}>
+                        {new Date(ep.uploadedAt).toLocaleString('ja-JP')}
+                      </p>
+                    </div>
+                    <div style={styles.episodeCardActions}>
+                      <button
+                        onClick={() => playEpisode(ep)}
+                        style={styles.playEpisodeBtn}
+                      >
+                        ▶ 再生
+                      </button>
+                      <button
+                        onClick={() => handleDelete(ep.id)}
+                        style={styles.deleteBtn}
+                      >
+                        🗑 削除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -250,7 +333,7 @@ const styles = {
     minHeight: '100vh',
   },
   header: {
-    marginBottom: '3rem',
+    marginBottom: '2rem',
     textAlign: 'center',
   },
   title: {
@@ -262,6 +345,32 @@ const styles = {
     fontSize: '1rem',
     color: '#666',
     margin: 0,
+  },
+  tabNav: {
+    display: 'flex',
+    gap: '0.5rem',
+    marginBottom: '2rem',
+    borderBottom: '1px solid #e5e7eb',
+  },
+  tabButton: {
+    padding: '0.75rem 1.5rem',
+    fontSize: '1rem',
+    fontWeight: '500',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  tabButtonActive: {
+    color: '#4f46e5',
+    borderBottom: '2px solid #4f46e5',
+    marginBottom: '-1px',
+  },
+  tabButtonInactive: {
+    color: '#999',
+  },
+  pageContainer: {
+    animation: 'fadeIn 0.2s ease-in',
   },
   player: {
     backgroundColor: '#fff',
@@ -317,6 +426,31 @@ const styles = {
     border: 'none',
     borderRadius: '8px',
     cursor: 'pointer',
+    transition: 'background-color 0.2s',
+  },
+  emptyState: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    padding: '3rem 2rem',
+    marginBottom: '2rem',
+    textAlign: 'center',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  },
+  emptyMessage: {
+    color: '#999',
+    fontSize: '1rem',
+    margin: '0 0 1rem 0',
+  },
+  switchTabBtn: {
+    padding: '0.75rem 1.5rem',
+    fontSize: '1rem',
+    fontWeight: '500',
+    backgroundColor: '#4f46e5',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'background-color 0.2s',
   },
   uploadSection: {
     backgroundColor: '#fff',
@@ -380,11 +514,6 @@ const styles = {
     cursor: 'pointer',
     transition: 'background-color 0.2s',
   },
-  fileName: {
-    fontSize: '0.9rem',
-    color: '#666',
-    margin: '0.5rem 0 0 0',
-  },
   submitBtn: {
     padding: '0.75rem',
     fontSize: '1rem',
@@ -402,12 +531,6 @@ const styles = {
     padding: '2rem',
     boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
   },
-  emptyMessage: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: '1rem',
-    margin: '2rem 0',
-  },
   episodeList: {
     display: 'flex',
     flexDirection: 'column',
@@ -421,7 +544,11 @@ const styles = {
     border: '1px solid #e5e7eb',
     borderRadius: '8px',
     backgroundColor: '#fafafa',
-    transition: 'background-color 0.2s',
+    transition: 'all 0.2s',
+  },
+  episodeCardActive: {
+    backgroundColor: '#ede9fe',
+    borderColor: '#4f46e5',
   },
   episodeCardContent: {
     flex: 1,
@@ -457,6 +584,7 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+    transition: 'background-color 0.2s',
   },
   deleteBtn: {
     padding: '0.5rem 0.75rem',
@@ -466,5 +594,6 @@ const styles = {
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
+    transition: 'background-color 0.2s',
   },
 };
