@@ -21,6 +21,5 @@ RUN cd react && npm prune --production
 EXPOSE 3001
 
 # 4. サーバーの起動コマンド
-# server.js がどこにあるかによってパスを調整してください。
-# 例：reactフォルダの外（ルート）にあるならこのままでOK
-CMD ["node", "server.js"]
+# `server.js` は `react/` 配下にあるため、正しいパスを指定します
+CMD ["node", "react/server.js"]

@@ -174,8 +174,8 @@ app.use((err, req, res, next) => {
 });
 
 // サーバー起動
-app.listen(PORT, () => {
-  console.log(`📻 Radio server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`📻 Radio server running on port ${PORT} (0.0.0.0)`);
   console.log(`📁 Audio files stored in: ${audioDir}`);
   console.log(`💾 Database: ${dbPath}`);
 });
