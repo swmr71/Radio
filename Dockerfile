@@ -1,5 +1,5 @@
 FROM node:22-slim
-WORKDIR /app
+WORKDIR /react
 
 # 一旦シンプルにpackage.jsonのコピーと通常のinstallにする
 COPY package*.json ./
