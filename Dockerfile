@@ -9,7 +9,7 @@ RUN npm install
 COPY react/ .
 
 # ポート番号はserver.jsやViteの設定に合わせてね（例として3000）
-EXPOSE 3000
+EXPOSE 3001
 
 # 起動コマンド。server.jsをそのまま叩くか、npm run dev等にするかは環境に合わせて調整してね
 CMD ["node", "server.js"]
