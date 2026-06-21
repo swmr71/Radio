@@ -1,6 +1,14 @@
+version: '3.8'
+
 services:
-  node-app:
+  radio-app:
     build: .
+    container_name: on-demand-radio-v2
     ports:
       - "3001:3001"
+    volumes:
+      - ./audio:/app/audio
+      - ./episodes.db:/app/episodes.db
     restart: always
+    environment:
+      - NODE_ENV=production

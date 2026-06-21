@@ -1,13 +1,22 @@
 FROM node:22-slim
+
 WORKDIR /app
 
-COPY react/package*.json ./
-RUN npm install
+# package.json と package-lock.json をコピー
+COPY package*.json ./
 
-COPY react/ .
+# 依存関係をインストール（Lucide React 含む）
+RUN npm install --production=false
 
-# 💡 ここを追加！Reactのビルドを実行して dist フォルダを作らせる
+# ソースコードをコピー
+COPY . .
+
+# 💡 React のビルド実行して dist フォルダを生成
 RUN npm run build
 
+# 本番用に不要な devDependencies を削除してサイズ削減（オプション）
+RUN npm prune --production
+
 EXPOSE 3001
+
 CMD ["node", "server.js"]
