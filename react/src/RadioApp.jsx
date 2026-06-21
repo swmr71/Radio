@@ -9,6 +9,11 @@ export default function RadioApp() {
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [repeatMode, setRepeatMode] = useState('none'); // 'none' | 'all' | 'one'
+  const [isShuffle, setIsShuffle] = useState(false);
+
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -24,6 +29,27 @@ export default function RadioApp() {
       window.removeEventListener('popstate', handleLocationChange);
     };
   }, []);
+
+  // Autoplay handler when currentEpisode changes
+  useEffect(() => {
+    if (currentEpisode && audioRef.current) {
+      // Set values back to zero to avoid showing old seek progress
+      setCurrentTime(0);
+      setDuration(0);
+      
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            setIsPlaying(true);
+          })
+          .catch((err) => {
+            console.log('Autoplay prevented/failed:', err);
+            setIsPlaying(false);
+          });
+      }
+    }
+  }, [currentEpisode]);
 
   const navigateTo = (path) => {
     window.history.pushState({}, '', path);
@@ -83,7 +109,7 @@ export default function RadioApp() {
 
   const playEpisode = (episode) => {
     setCurrentEpisode(episode);
-    setIsPlaying(false);
+    setIsPlaying(true);
     navigateTo('/'); // Redirect to play view when clicked
   };
 
@@ -91,10 +117,89 @@ export default function RadioApp() {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause();
+        setIsPlaying(false);
       } else {
-        audioRef.current.play();
+        audioRef.current.play().then(() => {
+          setIsPlaying(true);
+        }).catch(err => {
+          console.error('Play failed:', err);
+        });
       }
-      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleSeek = (e) => {
+    const time = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
+
+  const formatTime = (secs) => {
+    if (isNaN(secs) || secs === Infinity) return '00:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const playNext = () => {
+    if (episodes.length === 0) return;
+    if (!currentEpisode) {
+      playEpisode(episodes[0]);
+      return;
+    }
+
+    if (isShuffle) {
+      const randomIndex = Math.floor(Math.random() * episodes.length);
+      playEpisode(episodes[randomIndex]);
+    } else {
+      const currentIndex = episodes.findIndex((ep) => ep.id === currentEpisode.id);
+      if (currentIndex !== -1) {
+        if (currentIndex < episodes.length - 1) {
+          playEpisode(episodes[currentIndex + 1]);
+        } else if (repeatMode === 'all') {
+          playEpisode(episodes[0]);
+        } else {
+          setIsPlaying(false);
+        }
+      }
+    }
+  };
+
+  const playPrev = () => {
+    if (episodes.length === 0 || !currentEpisode) return;
+
+    const currentIndex = episodes.findIndex((ep) => ep.id === currentEpisode.id);
+    if (currentIndex !== -1) {
+      if (currentIndex > 0) {
+        playEpisode(episodes[currentIndex - 1]);
+      } else if (repeatMode === 'all') {
+        playEpisode(episodes[episodes.length - 1]);
+      }
+    }
+  };
+
+  const handleEnded = () => {
+    if (repeatMode === 'one') {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(err => console.error(err));
+      }
+    } else {
+      playNext();
     }
   };
 
@@ -163,16 +268,87 @@ export default function RadioApp() {
               <audio
                 ref={audioRef}
                 src={`/audio/${currentEpisode.filename}`}
-                onEnded={() => setIsPlaying(false)}
-                style={styles.audio}
+                onEnded={handleEnded}
+                onTimeUpdate={handleTimeUpdate}
+                onLoadedMetadata={handleLoadedMetadata}
+                style={{ display: 'none' }}
               />
+              
+              {/* Seek Bar */}
+              <div style={styles.seekBarContainer}>
+                <span style={styles.timeLabel}>{formatTime(currentTime)}</span>
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  value={currentTime}
+                  onChange={handleSeek}
+                  style={styles.seekBar}
+                />
+                <span style={styles.timeLabel}>{formatTime(duration)}</span>
+              </div>
+
+              {/* Player Controls */}
               <div style={styles.playerControls}>
+                <button
+                  onClick={() => setIsShuffle(!isShuffle)}
+                  style={{
+                    ...styles.controlBtn,
+                    color: isShuffle ? '#4f46e5' : '#999',
+                    backgroundColor: isShuffle ? '#f3f4f6' : 'transparent',
+                    borderColor: isShuffle ? '#c7d2fe' : '#e5e7eb',
+                  }}
+                  title="シャッフル"
+                >
+                  🔀
+                </button>
+                
+                <button 
+                  onClick={playPrev} 
+                  style={styles.controlBtn} 
+                  title="前へ"
+                >
+                  ⏮
+                </button>
+
                 <button
                   onClick={togglePlayPause}
                   style={styles.playBtn}
                 >
                   {isPlaying ? '⏸ 一時停止' : '▶ 再生'}
                 </button>
+
+                <button 
+                  onClick={playNext} 
+                  style={styles.controlBtn} 
+                  title="次へ"
+                >
+                  ⏭
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (repeatMode === 'none') setRepeatMode('all');
+                    else if (repeatMode === 'all') setRepeatMode('one');
+                    else setRepeatMode('none');
+                  }}
+                  style={{
+                    ...styles.controlBtn,
+                    color: repeatMode !== 'none' ? '#4f46e5' : '#999',
+                    backgroundColor: repeatMode !== 'none' ? '#f3f4f6' : 'transparent',
+                    borderColor: repeatMode !== 'none' ? '#c7d2fe' : '#e5e7eb',
+                  }}
+                  title={
+                    repeatMode === 'none'
+                      ? 'リピート: オフ'
+                      : repeatMode === 'all'
+                      ? 'リピート: 全曲'
+                      : 'リピート: 1曲'
+                  }
+                >
+                  🔁 {repeatMode === 'one' ? <span style={{fontSize: '0.65rem', verticalAlign: 'super'}}>1</span> : ''}
+                </button>
+
                 <button
                   onClick={() => {
                     setCurrentEpisode(null);
@@ -421,6 +597,38 @@ const styles = {
   playerControls: {
     display: 'flex',
     gap: '0.75rem',
+    alignItems: 'center',
+  },
+  controlBtn: {
+    padding: '0.6rem 0.8rem',
+    fontSize: '1.1rem',
+    backgroundColor: 'transparent',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seekBarContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    width: '100%',
+    marginBottom: '1.25rem',
+  },
+  seekBar: {
+    flex: 1,
+    cursor: 'pointer',
+    height: '6px',
+    accentColor: '#4f46e5',
+  },
+  timeLabel: {
+    fontSize: '0.85rem',
+    color: '#666',
+    fontFamily: 'monospace',
+    minWidth: '40px',
   },
   playBtn: {
     flex: 1,
