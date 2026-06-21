@@ -1,10 +1,15 @@
 FROM node:22-slim
-WORKDIR /react
+WORKDIR /app
 
-# 一旦シンプルにpackage.jsonのコピーと通常のinstallにする
-COPY package*.json ./
+# reactフォルダの中にあるpackage.jsonを指定してコピーする
+COPY react/package*.json ./
 RUN npm install
 
-COPY . .
+# reactフォルダの中身をすべてコンテナの/app直下にコピーする
+COPY react/ .
+
+# ポート番号はserver.jsやViteの設定に合わせてね（例として3000）
 EXPOSE 3000
-CMD ["node", "index.js"]
+
+# 起動コマンド。server.jsをそのまま叩くか、npm run dev等にするかは環境に合わせて調整してね
+CMD ["node", "server.js"]
