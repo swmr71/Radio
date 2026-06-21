@@ -65,7 +65,7 @@ export default function RadioApp() {
 
   const playEpisode = (episode) => {
     setCurrentEpisode(episode);
-    setIsPlaying(true);
+    setIsPlaying(false); // 状態をリセット、プレイヤーボタンで手動再生
   };
 
   const togglePlayPause = () => {
