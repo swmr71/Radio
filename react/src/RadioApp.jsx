@@ -272,11 +272,16 @@ export default function RadioApp() {
         <div style={styles.sidebarHeader}>
           <Music size={24} style={{ color: '#4f46e5' }} />
           <h1 style={styles.sidebarTitle}>ラジオ</h1>
+          {/* サイドバー内を閉じるボタン（スマホ・PC共通で便利） */}
+          <button onClick={() => setSidebarOpen(false)} style={styles.closeSidebarBtn}>
+            <X size={20} />
+          </button>
         </div>
 
         <nav style={styles.sidebarNav}>
+          {/* onClick内の setSidebarOpen(false) を削除して勝手に閉じないように変更 */}
           <button
-            onClick={() => { setCurrentPage('browse'); setSidebarOpen(false); }}
+            onClick={() => { setCurrentPage('browse'); }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'browse' ? styles.navButtonActive : {}),
@@ -286,7 +291,7 @@ export default function RadioApp() {
             <span>ブラウズ</span>
           </button>
           <button
-            onClick={() => { setCurrentPage('upload'); setSidebarOpen(false); }}
+            onClick={() => { setCurrentPage('upload'); }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'upload' ? styles.navButtonActive : {}),
@@ -296,7 +301,7 @@ export default function RadioApp() {
             <span>アップロード</span>
           </button>
           <button
-            onClick={() => { setCurrentPage('favorites'); setSidebarOpen(false); }}
+            onClick={() => { setCurrentPage('favorites'); }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'favorites' ? styles.navButtonActive : {}),
@@ -352,12 +357,12 @@ export default function RadioApp() {
         </div>
       </aside>
 
-      {/* メインコンテンツ */}
-      <main style={styles.mainContent}>
-        {/* ハンバーガーメニュー */}
+      {/* メインコンテンツ - サイドバーの状態に合わせて左マージンを動的に変える */}
+      <main style={{ ...styles.mainContent, marginLeft: sidebarOpen ? '250px' : '0' }}>
+        {/* ハンバーガーメニュー - サイドバーが閉じている時だけ表示されるように変更 */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={styles.hamburgerBtn}
+          style={{ ...styles.hamburgerBtn, display: sidebarOpen ? 'none' : 'flex' }}
         >
           <Menu size={24} />
         </button>
@@ -735,12 +740,23 @@ const styles = {
     alignItems: 'center',
     gap: '0.75rem',
     marginBottom: '2rem',
+    justifyContent: 'space-between',
   },
   sidebarTitle: {
     fontSize: '1.5rem',
     fontWeight: '700',
     margin: 0,
     color: '#1f2937',
+    flex: 1,
+  },
+  closeSidebarBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: '#6b7280',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
   },
   sidebarNav: {
     display: 'flex',
@@ -760,6 +776,8 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
+    width: '100%',
+    textAlign: 'left',
   },
   navButtonActive: {
     backgroundColor: '#ede9fe',
@@ -835,17 +853,17 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'background-color 0.2s',
+    width: '100%',
   },
   mainContent: {
-    marginLeft: '250px',
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
     overflowY: 'auto',
     paddingBottom: '150px',
+    transition: 'margin-left 0.3s ease-out',
   },
   hamburgerBtn: {
-    display: 'none',
     position: 'fixed',
     top: '1rem',
     left: '1rem',
