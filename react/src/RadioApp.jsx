@@ -481,7 +481,7 @@ export default function RadioApp() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="audio/*"
+                      accept="mp3"
                       onChange={(e) => setUploadFile(e.target.files[0])}
                       style={styles.fileInput}
                     />
