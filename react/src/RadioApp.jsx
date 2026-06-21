@@ -8,13 +8,27 @@ export default function RadioApp() {
   const [uploading, setUploading] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [activeTab, setActiveTab] = useState('player'); // 'player' or 'manage'
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     fetchEpisodes();
+
+    const handleLocationChange = () => {
+      setCurrentPath(window.location.pathname);
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('popstate', handleLocationChange);
+    };
   }, []);
+
+  const navigateTo = (path) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+  };
 
   const fetchEpisodes = async () => {
     try {
@@ -70,7 +84,7 @@ export default function RadioApp() {
   const playEpisode = (episode) => {
     setCurrentEpisode(episode);
     setIsPlaying(false);
-    setActiveTab('player'); // 再生ページに切り替え
+    navigateTo('/'); // Redirect to play view when clicked
   };
 
   const togglePlayPause = () => {
@@ -101,6 +115,8 @@ export default function RadioApp() {
     }
   };
 
+  const isManagePage = currentPath === '/manage';
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -108,30 +124,30 @@ export default function RadioApp() {
         <p style={styles.subtitle}>音声エピソードをアップロード＆再生</p>
       </header>
 
-      {/* タブナビゲーション */}
+      {/* ページナビゲーション */}
       <div style={styles.tabNav}>
         <button
           style={{
             ...styles.tabButton,
-            ...(activeTab === 'player' ? styles.tabButtonActive : styles.tabButtonInactive),
+            ...(!isManagePage ? styles.tabButtonActive : styles.tabButtonInactive),
           }}
-          onClick={() => setActiveTab('player')}
+          onClick={() => navigateTo('/')}
         >
-          ▶ 再生
+          ▶ 再生ページ
         </button>
         <button
           style={{
             ...styles.tabButton,
-            ...(activeTab === 'manage' ? styles.tabButtonActive : styles.tabButtonInactive),
+            ...(isManagePage ? styles.tabButtonActive : styles.tabButtonInactive),
           }}
-          onClick={() => setActiveTab('manage')}
+          onClick={() => navigateTo('/manage')}
         >
-          ⚙ 管理
+          ⚙ 管理ページ
         </button>
       </div>
 
       {/* 再生ページ */}
-      {activeTab === 'player' && (
+      {!isManagePage && (
         <div style={styles.pageContainer}>
           {currentEpisode ? (
             <div style={styles.player}>
@@ -172,7 +188,7 @@ export default function RadioApp() {
             <div style={styles.emptyState}>
               <p style={styles.emptyMessage}>エピソードを選択してください</p>
               <button
-                onClick={() => setActiveTab('manage')}
+                onClick={() => navigateTo('/manage')}
                 style={styles.switchTabBtn}
               >
                 管理ページに移動
@@ -220,7 +236,7 @@ export default function RadioApp() {
       )}
 
       {/* 管理ページ */}
-      {activeTab === 'manage' && (
+      {isManagePage && (
         <div style={styles.pageContainer}>
           <div style={styles.uploadSection}>
             <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
@@ -255,7 +271,7 @@ export default function RadioApp() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="mp3"
+                    accept="audio/*"
                     onChange={(e) => {
                       setUploadFile(e.target.files[0]);
                     }}
