@@ -18,7 +18,6 @@ import {
   Menu,
 } from 'lucide-react';
 
-
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
   const [filteredEpisodes, setFilteredEpisodes] = useState([]);
@@ -152,6 +151,15 @@ export default function RadioApp() {
     }
   };
 
+  // リスト内の再生・一時停止の制御用
+  const handleCardPlayClick = (episode) => {
+    if (currentEpisode?.id === episode.id) {
+      togglePlayPause();
+    } else {
+      playEpisode(episode);
+    }
+  };
+
   const handleTimeUpdate = () => {
     if (audioRef.current) {
       setCurrentTime(audioRef.current.currentTime);
@@ -273,14 +281,12 @@ export default function RadioApp() {
         <div style={styles.sidebarHeader}>
           <Music size={24} style={{ color: '#4f46e5' }} />
           <h1 style={styles.sidebarTitle}>ラジオ</h1>
-          {/* サイドバー内を閉じるボタン（スマホ・PC共通で便利） */}
           <button onClick={() => setSidebarOpen(false)} style={styles.closeSidebarBtn}>
             <X size={20} />
           </button>
         </div>
 
         <nav style={styles.sidebarNav}>
-          {/* onClick内の setSidebarOpen(false) を削除して勝手に閉じないように変更 */}
           <button
             onClick={() => { setCurrentPage('browse'); }}
             style={{
@@ -358,9 +364,9 @@ export default function RadioApp() {
         </div>
       </aside>
 
-      {/* メインコンテンツ - サイドバーの状態に合わせて左マージンを動的に変える */}
+      {/* メインコンテンツ */}
       <main style={{ ...styles.mainContent, marginLeft: sidebarOpen ? '250px' : '0' }}>
-        {/* ハンバーガーメニュー - サイドバーが閉じている時だけ表示されるように変更 */}
+        {/* ハンバーガーメニュー */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
           style={{ ...styles.hamburgerBtn, display: sidebarOpen ? 'none' : 'flex' }}
@@ -403,9 +409,13 @@ export default function RadioApp() {
                     >
                       <div
                         style={styles.episodeCardImage}
-                        onClick={() => playEpisode(ep)}
+                        onClick={() => handleCardPlayClick(ep)}
                       >
-                        <Music size={48} style={{ color: '#fff' }} />
+                        {currentEpisode?.id === ep.id && isPlaying ? (
+                          <Pause size={48} style={{ color: '#fff' }} />
+                        ) : (
+                          <Music size={48} style={{ color: '#fff' }} />
+                        )}
                       </div>
                       <div style={styles.episodeCardContent}>
                         <h3 style={styles.episodeTitle}>{ep.title}</h3>
@@ -418,10 +428,14 @@ export default function RadioApp() {
                       </div>
                       <div style={styles.episodeCardActions}>
                         <button
-                          onClick={() => playEpisode(ep)}
+                          onClick={() => handleCardPlayClick(ep)}
                           style={styles.playBtn}
                         >
-                          <Play size={18} />
+                          {currentEpisode?.id === ep.id && isPlaying ? (
+                            <Pause size={18} />
+                          ) : (
+                            <Play size={18} />
+                          )}
                         </button>
                         <button
                           onClick={() => toggleFavorite(ep.id)}
@@ -473,15 +487,15 @@ export default function RadioApp() {
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>音声ファイル</label>
+                  <label style={styles.label}>ファイル</label>
                   <div
                     style={styles.fileInputWrapper}
                     onClick={() => fileInputRef.current?.click()}
                   >
+                    {/* accept属性を削除して全ファイル形式を選択可能に */}
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="mp3"
                       onChange={(e) => setUploadFile(e.target.files[0])}
                       style={styles.fileInput}
                     />
@@ -530,9 +544,13 @@ export default function RadioApp() {
                       >
                         <div
                           style={styles.episodeCardImage}
-                          onClick={() => playEpisode(ep)}
+                          onClick={() => handleCardPlayClick(ep)}
                         >
-                          <Music size={48} style={{ color: '#fff' }} />
+                          {currentEpisode?.id === ep.id && isPlaying ? (
+                            <Pause size={48} style={{ color: '#fff' }} />
+                          ) : (
+                            <Music size={48} style={{ color: '#fff' }} />
+                          )}
                         </div>
                         <div style={styles.episodeCardContent}>
                           <h3 style={styles.episodeTitle}>{ep.title}</h3>
@@ -545,10 +563,14 @@ export default function RadioApp() {
                         </div>
                         <div style={styles.episodeCardActions}>
                           <button
-                            onClick={() => playEpisode(ep)}
+                            onClick={() => handleCardPlayClick(ep)}
                             style={styles.playBtn}
                           >
-                            <Play size={18} />
+                            {currentEpisode?.id === ep.id && isPlaying ? (
+                              <Pause size={18} />
+                            ) : (
+                              <Play size={18} />
+                            )}
                           </button>
                           <button
                             onClick={() => toggleFavorite(ep.id)}
@@ -573,8 +595,8 @@ export default function RadioApp() {
         )}
       </main>
 
-      {/* 固定プレイヤー */}
-      <div style={styles.playerContainer}>
+      {/* 固定プレイヤー - leftをサイドバーの状態と連動させて隠れないように修正 */}
+      <div style={{ ...styles.playerContainer, left: sidebarOpen ? '250px' : '0' }}>
         <audio
           ref={audioRef}
           src={currentEpisode ? `/audio/${currentEpisode.filename}` : ''}
@@ -734,7 +756,7 @@ const styles = {
     position: 'fixed',
     height: '100vh',
     zIndex: 100,
-    transition: 'left 0.3s ease-out',
+    // transition を削除
   },
   sidebarHeader: {
     display: 'flex',
@@ -862,7 +884,7 @@ const styles = {
     flexDirection: 'column',
     overflowY: 'auto',
     paddingBottom: '150px',
-    transition: 'margin-left 0.3s ease-out',
+    // transition を削除
   },
   hamburgerBtn: {
     position: 'fixed',
@@ -1076,7 +1098,6 @@ const styles = {
   playerContainer: {
     position: 'fixed',
     bottom: 0,
-    left: 0,
     right: 0,
     zIndex: 50,
   },
