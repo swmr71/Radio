@@ -16,6 +16,7 @@ import {
   Music,
   Clock,
   Menu,
+  ListPlus,
 } from 'lucide-react';
 
 export default function RadioApp() {
@@ -35,8 +36,10 @@ export default function RadioApp() {
   const [favorites, setFavorites] = useState(new Set());
   const [currentPage, setCurrentPage] = useState('browse');
   const [playlists, setPlaylists] = useState([
-    { id: 1, name: 'お気に入り', color: '#ec4899' },
+    { id: 1, name: 'マイベスト', color: '#ec4899', episodeIds: [] },
   ]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
+  const [activeDropdownEpisodeId, setActiveDropdownEpisodeId] = useState(null);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [showPlaylistForm, setShowPlaylistForm] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -151,15 +154,6 @@ export default function RadioApp() {
     }
   };
 
-  // リスト内の再生・一時停止の制御用
-  const handleCardPlayClick = (episode) => {
-    if (currentEpisode?.id === episode.id) {
-      togglePlayPause();
-    } else {
-      playEpisode(episode);
-    }
-  };
-
   const handleTimeUpdate = () => {
     if (audioRef.current) {
       setCurrentTime(audioRef.current.currentTime);
@@ -187,23 +181,38 @@ export default function RadioApp() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
+  // 現在の再生コンテキストに応じたトラックリストを取得する（スキップ・シャッフル用）
+  const getCurrentTrackList = () => {
+    if (currentPage === 'favorites') {
+      return filteredEpisodes.filter((ep) => favorites.has(ep.id));
+    }
+    if (currentPage === 'playlist') {
+      const currentPl = playlists.find((p) => p.id === selectedPlaylistId);
+      return currentPl
+        ? filteredEpisodes.filter((ep) => currentPl.episodeIds.includes(ep.id))
+        : [];
+    }
+    return filteredEpisodes;
+  };
+
   const playNext = () => {
-    if (filteredEpisodes.length === 0) return;
+    const trackList = getCurrentTrackList();
+    if (trackList.length === 0) return;
     if (!currentEpisode) {
-      playEpisode(filteredEpisodes[0]);
+      playEpisode(trackList[0]);
       return;
     }
 
     if (isShuffle) {
-      const randomIndex = Math.floor(Math.random() * filteredEpisodes.length);
-      playEpisode(filteredEpisodes[randomIndex]);
+      const randomIndex = Math.floor(Math.random() * trackList.length);
+      playEpisode(trackList[randomIndex]);
     } else {
-      const currentIndex = filteredEpisodes.findIndex((ep) => ep.id === currentEpisode.id);
+      const currentIndex = trackList.findIndex((ep) => ep.id === currentEpisode.id);
       if (currentIndex !== -1) {
-        if (currentIndex < filteredEpisodes.length - 1) {
-          playEpisode(filteredEpisodes[currentIndex + 1]);
+        if (currentIndex < trackList.length - 1) {
+          playEpisode(trackList[currentIndex + 1]);
         } else if (repeatMode === 'all') {
-          playEpisode(filteredEpisodes[0]);
+          playEpisode(trackList[0]);
         } else {
           setIsPlaying(false);
         }
@@ -212,14 +221,15 @@ export default function RadioApp() {
   };
 
   const playPrev = () => {
-    if (filteredEpisodes.length === 0 || !currentEpisode) return;
+    const trackList = getCurrentTrackList();
+    if (trackList.length === 0 || !currentEpisode) return;
 
-    const currentIndex = filteredEpisodes.findIndex((ep) => ep.id === currentEpisode.id);
+    const currentIndex = trackList.findIndex((ep) => ep.id === currentEpisode.id);
     if (currentIndex !== -1) {
       if (currentIndex > 0) {
-        playEpisode(filteredEpisodes[currentIndex - 1]);
+        playEpisode(trackList[currentIndex - 1]);
       } else if (repeatMode === 'all') {
-        playEpisode(filteredEpisodes[filteredEpisodes.length - 1]);
+        playEpisode(trackList[trackList.length - 1]);
       }
     }
   };
@@ -268,27 +278,170 @@ export default function RadioApp() {
       id: Math.max(...playlists.map((p) => p.id), 0) + 1,
       name: newPlaylistName,
       color: `hsl(${Math.random() * 360}, 70%, 50%)`,
+      episodeIds: [],
     };
     setPlaylists([...playlists, newPlaylist]);
     setNewPlaylistName('');
     setShowPlaylistForm(false);
   };
 
+  const toggleEpisodeInPlaylist = (playlistId, episodeId) => {
+    setPlaylists(
+      playlists.map((pl) => {
+        if (pl.id === playlistId) {
+          const exists = pl.episodeIds.includes(episodeId);
+          return {
+            ...pl,
+            episodeIds: exists
+              ? pl.episodeIds.filter((id) => id !== episodeId)
+              : [...pl.episodeIds, episodeId],
+          };
+        }
+        return pl;
+      })
+    );
+  };
+
+  const handleExpandPlayer = () => {
+    setPlayerExpanded(true);
+    setSidebarOpen(false); // ボトムが開いたらサイドバーなどのタブメニューを閉じる
+  };
+
+  // 各ページ共通のエピソードカードグリッド描画関数
+  const renderEpisodeGrid = (trackList, emptyMessage, emptyIcon) => {
+    if (trackList.length === 0) {
+      return (
+        <div style={styles.emptyState}>
+          {emptyIcon}
+          <p style={styles.emptyMessage}>{emptyMessage}</p>
+        </div>
+      );
+    }
+
+    return (
+      <div style={styles.episodeGrid} className="animate-fade-in">
+        {trackList.map((ep) => (
+          <div
+            key={ep.id}
+            className="episode-card"
+            onMouseLeave={() => activeDropdownEpisodeId === ep.id && setActiveDropdownEpisodeId(null)}
+            style={{
+              ...styles.episodeCard,
+              ...(currentEpisode?.id === ep.id ? styles.episodeCardActive : {}),
+              position: 'relative',
+            }}
+          >
+            <div style={styles.episodeCardImage} onClick={() => playEpisode(ep)}>
+              <Music size={48} style={{ color: '#fff' }} />
+            </div>
+            <div style={styles.episodeCardContent} onClick={() => playEpisode(ep)}>
+              <h3 style={styles.episodeTitle}>{ep.title}</h3>
+              {ep.description && <p style={styles.episodeDesc}>{ep.description}</p>}
+              <p style={styles.episodeDate}>
+                {new Date(ep.uploadedAt).toLocaleDateString('ja-JP')}
+              </p>
+            </div>
+            <div style={styles.episodeCardActions}>
+              <button onClick={() => playEpisode(ep)} style={styles.playBtn}>
+                <Play size={18} />
+              </button>
+              <button
+                onClick={() => toggleFavorite(ep.id)}
+                style={{
+                  ...styles.favoriteBtn,
+                  ...(favorites.has(ep.id) ? styles.favoriteBtnActive : {}),
+                }}
+              >
+                {favorites.has(ep.id) ? <Heart size={18} /> : <HeartOff size={18} />}
+              </button>
+
+              {/* プレイリスト追加ドロップダウン */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveDropdownEpisodeId(activeDropdownEpisodeId === ep.id ? null : ep.id);
+                  }}
+                  style={{
+                    ...styles.favoriteBtn,
+                    backgroundColor: playlists.some((p) => p.episodeIds.includes(ep.id))
+                      ? '#e0e7ff'
+                      : '#f3f4f6',
+                    color: playlists.some((p) => p.episodeIds.includes(ep.id)) ? '#4f46e5' : '#6b7280',
+                  }}
+                >
+                  <ListPlus size={18} />
+                </button>
+
+                {activeDropdownEpisodeId === ep.id && (
+                  <div style={styles.playlistDropdownMenu} className="animate-fade-in">
+                    <p style={styles.dropdownMenuTitle}>プレイリストに追加</p>
+                    {playlists.map((pl) => {
+                      const inPlaylist = pl.episodeIds.includes(ep.id);
+                      return (
+                        <label key={pl.id} style={styles.dropdownItem}>
+                          <input
+                            type="checkbox"
+                            checked={inPlaylist}
+                            onChange={() => toggleEpisodeInPlaylist(pl.id, ep.id)}
+                            style={{ accentColor: pl.color }}
+                          />
+                          <span style={styles.dropdownItemText}>{pl.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // 埋め込みCSSアニメーション
+  const animationStyles = `
+    @keyframes slideUp {
+      from { transform: translateY(100%); opacity: 0.9; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.98); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .animate-slide-up {
+      animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .animate-fade-in {
+      animation: fadeIn 0.2s ease-out forwards;
+    }
+    .episode-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    .episode-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+    }
+  `;
+
   return (
     <div style={styles.appContainer}>
+      <style>{animationStyles}</style>
+
       {/* サイドバー */}
       <aside style={{ ...styles.sidebar, left: sidebarOpen ? 0 : '-250px' }}>
         <div style={styles.sidebarHeader}>
           <Music size={24} style={{ color: '#4f46e5' }} />
           <h1 style={styles.sidebarTitle}>ラジオ</h1>
-          <button onClick={() => setSidebarOpen(false)} style={styles.closeSidebarBtn}>
-            <X size={20} />
-          </button>
         </div>
 
         <nav style={styles.sidebarNav}>
           <button
-            onClick={() => { setCurrentPage('browse'); }}
+            onClick={() => {
+              setCurrentPage('browse');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'browse' ? styles.navButtonActive : {}),
@@ -298,7 +451,10 @@ export default function RadioApp() {
             <span>ブラウズ</span>
           </button>
           <button
-            onClick={() => { setCurrentPage('upload'); }}
+            onClick={() => {
+              setCurrentPage('upload');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'upload' ? styles.navButtonActive : {}),
@@ -308,7 +464,10 @@ export default function RadioApp() {
             <span>アップロード</span>
           </button>
           <button
-            onClick={() => { setCurrentPage('favorites'); }}
+            onClick={() => {
+              setCurrentPage('favorites');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'favorites' ? styles.navButtonActive : {}),
@@ -322,10 +481,7 @@ export default function RadioApp() {
         <div style={styles.sidebarPlaylistsSection}>
           <div style={styles.playlistsHeader}>
             <h3 style={styles.playlistsTitle}>プレイリスト</h3>
-            <button
-              onClick={() => setShowPlaylistForm(!showPlaylistForm)}
-              style={styles.addPlaylistBtn}
-            >
+            <button onClick={() => setShowPlaylistForm(!showPlaylistForm)} style={styles.addPlaylistBtn}>
               +
             </button>
           </div>
@@ -339,10 +495,7 @@ export default function RadioApp() {
                 placeholder="プレイリスト名"
                 style={styles.playlistInput}
               />
-              <button
-                onClick={createPlaylist}
-                style={styles.createPlaylistBtn}
-              >
+              <button onClick={createPlaylist} style={styles.createPlaylistBtn}>
                 作成
               </button>
             </div>
@@ -352,12 +505,19 @@ export default function RadioApp() {
             {playlists.map((pl) => (
               <button
                 key={pl.id}
+                onClick={() => {
+                  setCurrentPage('playlist');
+                  setSelectedPlaylistId(pl.id);
+                  setSidebarOpen(false);
+                }}
                 style={{
                   ...styles.playlistButton,
                   borderLeft: `4px solid ${pl.color}`,
+                  backgroundColor: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '#f3f4f6' : 'transparent',
+                  fontWeight: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '600' : 'normal',
                 }}
               >
-                {pl.name}
+                {pl.name} ({pl.episodeIds.length})
               </button>
             ))}
           </div>
@@ -365,12 +525,9 @@ export default function RadioApp() {
       </aside>
 
       {/* メインコンテンツ */}
-      <main style={{ ...styles.mainContent, marginLeft: sidebarOpen ? '250px' : '0' }}>
+      <main style={styles.mainContent}>
         {/* ハンバーガーメニュー */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={{ ...styles.hamburgerBtn, display: sidebarOpen ? 'none' : 'flex' }}
-        >
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} style={styles.hamburgerBtn}>
           <Menu size={24} />
         </button>
 
@@ -389,71 +546,11 @@ export default function RadioApp() {
             </div>
 
             <section style={styles.section}>
-              <h2 style={styles.sectionTitle}>
-                {searchQuery ? '検索結果' : 'すべてのエピソード'}
-              </h2>
-              {filteredEpisodes.length === 0 ? (
-                <div style={styles.emptyState}>
-                  <Music size={48} style={{ color: '#d1d5db' }} />
-                  <p style={styles.emptyMessage}>エピソードが見つかりません</p>
-                </div>
-              ) : (
-                <div style={styles.episodeGrid}>
-                  {filteredEpisodes.map((ep) => (
-                    <div
-                      key={ep.id}
-                      style={{
-                        ...styles.episodeCard,
-                        ...(currentEpisode?.id === ep.id ? styles.episodeCardActive : {}),
-                      }}
-                    >
-                      <div
-                        style={styles.episodeCardImage}
-                        onClick={() => handleCardPlayClick(ep)}
-                      >
-                        {currentEpisode?.id === ep.id && isPlaying ? (
-                          <Pause size={48} style={{ color: '#fff' }} />
-                        ) : (
-                          <Music size={48} style={{ color: '#fff' }} />
-                        )}
-                      </div>
-                      <div style={styles.episodeCardContent}>
-                        <h3 style={styles.episodeTitle}>{ep.title}</h3>
-                        {ep.description && (
-                          <p style={styles.episodeDesc}>{ep.description}</p>
-                        )}
-                        <p style={styles.episodeDate}>
-                          {new Date(ep.uploadedAt).toLocaleDateString('ja-JP')}
-                        </p>
-                      </div>
-                      <div style={styles.episodeCardActions}>
-                        <button
-                          onClick={() => handleCardPlayClick(ep)}
-                          style={styles.playBtn}
-                        >
-                          {currentEpisode?.id === ep.id && isPlaying ? (
-                            <Pause size={18} />
-                          ) : (
-                            <Play size={18} />
-                          )}
-                        </button>
-                        <button
-                          onClick={() => toggleFavorite(ep.id)}
-                          style={{
-                            ...styles.favoriteBtn,
-                            ...(favorites.has(ep.id) ? styles.favoriteBtnActive : {}),
-                          }}
-                        >
-                          {favorites.has(ep.id) ? (
-                            <Heart size={18} />
-                          ) : (
-                            <HeartOff size={18} />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <h2 style={styles.sectionTitle}>{searchQuery ? '検索結果' : 'すべてのエピソード'}</h2>
+              {renderEpisodeGrid(
+                filteredEpisodes,
+                'エピソードが見つかりません',
+                <Music size={48} style={{ color: '#d1d5db' }} />
               )}
             </section>
           </div>
@@ -461,7 +558,7 @@ export default function RadioApp() {
 
         {/* アップロードページ */}
         {currentPage === 'upload' && (
-          <div style={styles.page}>
+          <div style={styles.page} className="animate-fade-in">
             <section style={styles.section}>
               <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
               <form onSubmit={handleUpload} style={styles.form}>
@@ -487,15 +584,12 @@ export default function RadioApp() {
                 </div>
 
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>ファイル</label>
-                  <div
-                    style={styles.fileInputWrapper}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {/* accept属性を削除して全ファイル形式を選択可能に */}
+                  <label style={styles.label}>音声ファイル</label>
+                  <div style={styles.fileInputWrapper} onClick={() => fileInputRef.current?.click()}>
                     <input
                       ref={fileInputRef}
                       type="file"
+                      accept="audio/*"
                       onChange={(e) => setUploadFile(e.target.files[0])}
                       style={styles.fileInput}
                     />
@@ -525,78 +619,43 @@ export default function RadioApp() {
           <div style={styles.page}>
             <section style={styles.section}>
               <h2 style={styles.sectionTitle}>お気に入り</h2>
-              {filteredEpisodes.filter((ep) => favorites.has(ep.id)).length === 0 ? (
-                <div style={styles.emptyState}>
-                  <Heart size={48} style={{ color: '#d1d5db' }} />
-                  <p style={styles.emptyMessage}>お気に入りがまだありません</p>
-                </div>
-              ) : (
-                <div style={styles.episodeGrid}>
-                  {filteredEpisodes
-                    .filter((ep) => favorites.has(ep.id))
-                    .map((ep) => (
-                      <div
-                        key={ep.id}
-                        style={{
-                          ...styles.episodeCard,
-                          ...(currentEpisode?.id === ep.id ? styles.episodeCardActive : {}),
-                        }}
-                      >
-                        <div
-                          style={styles.episodeCardImage}
-                          onClick={() => handleCardPlayClick(ep)}
-                        >
-                          {currentEpisode?.id === ep.id && isPlaying ? (
-                            <Pause size={48} style={{ color: '#fff' }} />
-                          ) : (
-                            <Music size={48} style={{ color: '#fff' }} />
-                          )}
-                        </div>
-                        <div style={styles.episodeCardContent}>
-                          <h3 style={styles.episodeTitle}>{ep.title}</h3>
-                          {ep.description && (
-                            <p style={styles.episodeDesc}>{ep.description}</p>
-                          )}
-                          <p style={styles.episodeDate}>
-                            {new Date(ep.uploadedAt).toLocaleDateString('ja-JP')}
-                          </p>
-                        </div>
-                        <div style={styles.episodeCardActions}>
-                          <button
-                            onClick={() => handleCardPlayClick(ep)}
-                            style={styles.playBtn}
-                          >
-                            {currentEpisode?.id === ep.id && isPlaying ? (
-                              <Pause size={18} />
-                            ) : (
-                              <Play size={18} />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => toggleFavorite(ep.id)}
-                            style={{
-                              ...styles.favoriteBtn,
-                              ...(favorites.has(ep.id) ? styles.favoriteBtnActive : {}),
-                            }}
-                          >
-                            {favorites.has(ep.id) ? (
-                              <Heart size={18} />
-                            ) : (
-                              <HeartOff size={18} />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
+              {renderEpisodeGrid(
+                filteredEpisodes.filter((ep) => favorites.has(ep.id)),
+                'お気に入りがまだありません',
+                <Heart size={48} style={{ color: '#d1d5db' }} />
               )}
             </section>
           </div>
         )}
+
+        {/* カスタムプレイリストページ */}
+        {currentPage === 'playlist' && (
+          <div style={styles.page}>
+            {(() => {
+              const currentPl = playlists.find((p) => p.id === selectedPlaylistId);
+              if (!currentPl) return null;
+              const plEpisodes = filteredEpisodes.filter((ep) => currentPl.episodeIds.includes(ep.id));
+
+              return (
+                <section style={styles.section}>
+                  <div style={styles.playlistTitleContainer}>
+                    <div style={{ ...styles.playlistColorBadge, backgroundColor: currentPl.color }} />
+                    <h2 style={{ ...styles.sectionTitle, margin: 0 }}>{currentPl.name}</h2>
+                  </div>
+                  {renderEpisodeGrid(
+                    plEpisodes,
+                    'このプレイリストにはまだエピソードがありません',
+                    <ListPlus size={48} style={{ color: '#d1d5db' }} />
+                  )}
+                </section>
+              );
+            })()}
+          </div>
+        )}
       </main>
 
-      {/* 固定プレイヤー - leftをサイドバーの状態と連動させて隠れないように修正 */}
-      <div style={{ ...styles.playerContainer, left: sidebarOpen ? '250px' : '0' }}>
+      {/* 固定プレイヤー */}
+      <div style={styles.playerContainer}>
         <audio
           ref={audioRef}
           src={currentEpisode ? `/audio/${currentEpisode.filename}` : ''}
@@ -607,7 +666,7 @@ export default function RadioApp() {
 
         {/* ミニプレイヤー */}
         {!playerExpanded && currentEpisode && (
-          <div style={styles.miniPlayer} onClick={() => setPlayerExpanded(true)}>
+          <div style={styles.miniPlayer} onClick={handleExpandPlayer}>
             <div style={styles.miniPlayerContent}>
               <div style={styles.miniPlayerIcon}>
                 <Music size={20} style={{ color: '#fff' }} />
@@ -631,13 +690,10 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* 拡張プレイヤー */}
+        {/* 拡張プレイヤー（アニメーション適用） */}
         {playerExpanded && currentEpisode && (
-          <div style={styles.expandedPlayer}>
-            <button
-              onClick={() => setPlayerExpanded(false)}
-              style={styles.collapseBtn}
-            >
+          <div style={styles.expandedPlayer} className="animate-slide-up">
+            <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn}>
               <X size={24} />
             </button>
 
@@ -647,9 +703,7 @@ export default function RadioApp() {
               </div>
 
               <h2 style={styles.expandedPlayerTitle}>{currentEpisode.title}</h2>
-              {currentEpisode.description && (
-                <p style={styles.expandedPlayerDesc}>{currentEpisode.description}</p>
-              )}
+              {currentEpisode.description && <p style={styles.expandedPlayerDesc}>{currentEpisode.description}</p>}
 
               {/* プログレスバー */}
               <div style={styles.progressSection}>
@@ -670,10 +724,7 @@ export default function RadioApp() {
               {/* コントロールボタン */}
               <div style={styles.playerControls}>
                 <button
-                  onClick={() => {
-                    if (isShuffle) setIsShuffle(false);
-                    else setIsShuffle(true);
-                  }}
+                  onClick={() => setIsShuffle(!isShuffle)}
                   style={{
                     ...styles.controlButton,
                     ...(isShuffle ? styles.controlButtonActive : {}),
@@ -682,28 +733,15 @@ export default function RadioApp() {
                   <Shuffle size={24} />
                 </button>
 
-                <button
-                  onClick={playPrev}
-                  style={styles.controlButton}
-                >
+                <button onClick={playPrev} style={styles.controlButton}>
                   <SkipBack size={24} />
                 </button>
 
-                <button
-                  onClick={togglePlayPause}
-                  style={styles.playButtonLarge}
-                >
-                  {isPlaying ? (
-                    <Pause size={32} />
-                  ) : (
-                    <Play size={32} />
-                  )}
+                <button onClick={togglePlayPause} style={styles.playButtonLarge}>
+                  {isPlaying ? <Pause size={32} /> : <Play size={32} />}
                 </button>
 
-                <button
-                  onClick={playNext}
-                  style={styles.controlButton}
-                >
+                <button onClick={playNext} style={styles.controlButton}>
                   <SkipForward size={24} />
                 </button>
 
@@ -718,11 +756,7 @@ export default function RadioApp() {
                     ...(repeatMode !== 'none' ? styles.controlButtonActive : {}),
                   }}
                 >
-                  {repeatMode === 'one' ? (
-                    <Repeat1 size={24} />
-                  ) : (
-                    <Repeat size={24} />
-                  )}
+                  {repeatMode === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
                 </button>
               </div>
 
@@ -756,30 +790,19 @@ const styles = {
     position: 'fixed',
     height: '100vh',
     zIndex: 100,
-    // transition を削除
+    transition: 'left 0.3s ease-out',
   },
   sidebarHeader: {
     display: 'flex',
     alignItems: 'center',
     gap: '0.75rem',
     marginBottom: '2rem',
-    justifyContent: 'space-between',
   },
   sidebarTitle: {
     fontSize: '1.5rem',
     fontWeight: '700',
     margin: 0,
     color: '#1f2937',
-    flex: 1,
-  },
-  closeSidebarBtn: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    color: '#6b7280',
-    padding: '4px',
-    display: 'flex',
-    alignItems: 'center',
   },
   sidebarNav: {
     display: 'flex',
@@ -799,8 +822,6 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
-    width: '100%',
-    textAlign: 'left',
   },
   navButtonActive: {
     backgroundColor: '#ede9fe',
@@ -876,17 +897,17 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'background-color 0.2s',
-    width: '100%',
   },
   mainContent: {
+    marginLeft: '250px',
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
     overflowY: 'auto',
     paddingBottom: '150px',
-    // transition を削除
   },
   hamburgerBtn: {
+    display: 'none',
     position: 'fixed',
     top: '1rem',
     left: '1rem',
@@ -932,6 +953,17 @@ const styles = {
     marginBottom: '1.5rem',
     color: '#1f2937',
   },
+  playlistTitleContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.75rem',
+    marginBottom: '1.5rem',
+  },
+  playlistColorBadge: {
+    width: '6px',
+    height: '24px',
+    borderRadius: '4px',
+  },
   episodeGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
@@ -942,7 +974,6 @@ const styles = {
     borderRadius: '12px',
     overflow: 'hidden',
     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-    transition: 'all 0.2s',
     cursor: 'pointer',
   },
   episodeCardActive: {
@@ -1019,6 +1050,42 @@ const styles = {
   favoriteBtnActive: {
     backgroundColor: '#fce7f3',
     color: '#ec4899',
+  },
+  playlistDropdownMenu: {
+    position: 'absolute',
+    bottom: '45px',
+    right: 0,
+    backgroundColor: '#fff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '8px',
+    boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+    padding: '0.75rem',
+    zIndex: 300,
+    minWidth: '160px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.25rem',
+  },
+  dropdownMenuTitle: {
+    margin: '0 0 0.5rem 0',
+    fontSize: '0.8rem',
+    fontWeight: 'bold',
+    color: '#6b7280',
+  },
+  dropdownItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    cursor: 'pointer',
+    padding: '0.25rem 0',
+    userSelect: 'none',
+  },
+  dropdownItemText: {
+    fontSize: '0.85rem',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: '#374151',
   },
   emptyState: {
     display: 'flex',
@@ -1098,8 +1165,9 @@ const styles = {
   playerContainer: {
     position: 'fixed',
     bottom: 0,
+    left: 0,
     right: 0,
-    zIndex: 50,
+    zIndex: 250, /* 拡張時メニューより前に出るよう引き上げ */
   },
   miniPlayer: {
     height: '70px',
@@ -1164,7 +1232,7 @@ const styles = {
     right: 0,
     bottom: 0,
     backgroundColor: '#fff',
-    zIndex: 60,
+    zIndex: 300,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
