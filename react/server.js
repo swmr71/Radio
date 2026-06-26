@@ -63,7 +63,56 @@ db.serialize(() => {
 // ミドルウェア
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/audio', express.static(audioDir));
+
+// ============ ストリーミング対応：Range Request ハンドラ ============
+app.get('/audio/:filename', (req, res) => {
+  const filename = req.params.filename;
+  const filepath = path.join(audioDir, filename);
+
+  // ディレクトリトラバーサル攻撃対策
+  if (!path.resolve(filepath).startsWith(path.resolve(audioDir))) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  // ファイル存在確認
+  fs.stat(filepath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const fileSize = stats.size;
+    const range = req.headers.range;
+
+    if (range) {
+      // Range Header がある場合：206 Partial Content で返送
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize) {
+        res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+        return;
+      }
+
+      const chunksize = end - start + 1;
+
+      res.status(206);
+      res.set('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+      res.set('Accept-Ranges', 'bytes');
+      res.set('Content-Length', chunksize);
+      res.set('Content-Type', 'audio/mpeg'); // audio/wav なども対応可
+      
+      fs.createReadStream(filepath, { start, end }).pipe(res);
+    } else {
+      // Range Header なし：ファイル全体を返送
+      res.set('Accept-Ranges', 'bytes');
+      res.set('Content-Length', fileSize);
+      res.set('Content-Type', 'audio/mpeg');
+      
+      fs.createReadStream(filepath).pipe(res);
+    }
+  });
+});
 
 // ============ API Endpoints ============
 
