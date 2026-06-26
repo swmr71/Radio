@@ -43,9 +43,13 @@ export default function RadioApp() {
   const [showPlaylistForm, setShowPlaylistForm] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [playerExpanded, setPlayerExpanded] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadSpeed, setUploadSpeed] = useState(0);
+  const [uploadedSize, setUploadedSize] = useState(0);
 
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const uploadStartTimeRef = useRef(null);
 
   useEffect(() => {
     fetchEpisodes();
@@ -102,38 +106,77 @@ export default function RadioApp() {
     }
 
     setUploading(true);
+    setUploadProgress(0);
+    setUploadSpeed(0);
+    setUploadedSize(0);
+    uploadStartTimeRef.current = Date.now();
+
     const formData = new FormData();
     formData.append('file', uploadFile);
     formData.append('title', episodeTitle);
     formData.append('description', episodeDesc);
 
-    try {
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+
+      // プログレスイベント
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = (e.loaded / e.total) * 100;
+          setUploadProgress(percentComplete);
+          setUploadedSize(e.loaded);
+
+          // アップロード速度計算（バイト/秒）
+          const elapsedSeconds = (Date.now() - uploadStartTimeRef.current) / 1000;
+          if (elapsedSeconds > 0) {
+            const speed = e.loaded / elapsedSeconds;
+            setUploadSpeed(speed);
+          }
+        }
       });
 
-      if (!res.ok) {
-        const error = await res.json();
-        alert(`アップロード失敗: ${error.error}`);
-        return;
-      }
+      // 完了イベント
+      xhr.addEventListener('load', () => {
+        if (xhr.status === 200) {
+          alert('アップロード成功！');
+          setUploadFile(null);
+          setEpisodeTitle('');
+          setEpisodeDesc('');
+          setUploadProgress(0);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+          fetchEpisodes();
+          setCurrentPage('browse');
+        } else {
+          try {
+            const error = JSON.parse(xhr.responseText);
+            alert(`アップロード失敗: ${error.error}`);
+          } catch {
+            alert(`アップロード失敗: ${xhr.statusText}`);
+          }
+        }
+        setUploading(false);
+        resolve();
+      });
 
-      alert('アップロード成功！');
-      setUploadFile(null);
-      setEpisodeTitle('');
-      setEpisodeDesc('');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      await fetchEpisodes();
-      setCurrentPage('browse');
-    } catch (error) {
-      console.error('Upload failed:', error);
-      alert(`エラー: ${error.message}`);
-    } finally {
-      setUploading(false);
-    }
+      // エラーイベント
+      xhr.addEventListener('error', () => {
+        alert(`エラー: ネットワーク接続に失敗しました`);
+        setUploading(false);
+        resolve();
+      });
+
+      // キャンセルイベント
+      xhr.addEventListener('abort', () => {
+        alert('アップロードがキャンセルされました');
+        setUploading(false);
+        resolve();
+      });
+
+      xhr.open('POST', '/api/upload');
+      xhr.send(formData);
+    });
   };
 
   const playEpisode = (episode) => {
@@ -178,6 +221,14 @@ export default function RadioApp() {
     const m = Math.floor(secs / 60);
     const s = Math.floor(secs % 60);
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  const formatBytes = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   const getCurrentTrackList = () => {
@@ -635,6 +686,28 @@ export default function RadioApp() {
                     </span>
                   </div>
                 </div>
+
+                {uploading && (
+                  <div style={styles.progressContainer}>
+                    <div style={styles.progressBar}>
+                      <div
+                        style={{
+                          ...styles.progressFill,
+                          width: `${uploadProgress}%`,
+                        }}
+                      />
+                    </div>
+                    <div style={styles.progressInfo}>
+                      <span>{Math.round(uploadProgress)}%</span>
+                      <span>
+                        {formatBytes(uploadedSize)} / {formatBytes(uploadFile.size)}
+                      </span>
+                      <span>
+                        {uploadSpeed > 0 ? `${formatBytes(uploadSpeed)}/s` : '-'}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"
@@ -1394,5 +1467,29 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'all 0.2s',
+  },
+  progressContainer: {
+    marginTop: '1.5rem',
+    marginBottom: '1.5rem',
+  },
+  progressBar: {
+    width: '100%',
+    height: '8px',
+    backgroundColor: '#e5e7eb',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    marginBottom: '1rem',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#4f46e5',
+    transition: 'width 0.3s ease',
+  },
+  progressInfo: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '0.875rem',
+    color: '#6b7280',
+    fontFamily: 'monospace',
   },
 };
