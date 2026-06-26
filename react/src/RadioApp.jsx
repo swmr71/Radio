@@ -14,7 +14,6 @@ import {
   Trash2,
   Upload,
   Music,
-  Clock,
   Menu,
   ListPlus,
 } from 'lucide-react';
@@ -44,38 +43,9 @@ export default function RadioApp() {
   const [showPlaylistForm, setShowPlaylistForm] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [playerExpanded, setPlayerExpanded] = useState(false);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
-  const dropdownRef = useRef(null);
-
-  // レスポンシブ対応
-  useEffect(() => {
-    const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
-      // モバイルでない場合はサイドバーを開く
-      if (!mobile) {
-        setSidebarOpen(true);
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // ドロップダウン外側クリック時に閉じる
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setActiveDropdownEpisodeId(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   useEffect(() => {
     fetchEpisodes();
@@ -210,7 +180,6 @@ export default function RadioApp() {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  // 現在の再生コンテキストに応じたトラックリストを取得する（スキップ・シャッフル用）
   const getCurrentTrackList = () => {
     if (currentPage === 'favorites') {
       return filteredEpisodes.filter((ep) => favorites.has(ep.id));
@@ -333,21 +302,9 @@ export default function RadioApp() {
 
   const handleExpandPlayer = () => {
     setPlayerExpanded(true);
+    // サイドバーを勝手に閉じないように修正（全画面プレイヤーが上に被さるため不要）
   };
 
-  // ナビゲーション時の処理
-  const handleNavigate = (page, playlistId = null) => {
-    setCurrentPage(page);
-    if (playlistId) {
-      setSelectedPlaylistId(playlistId);
-    }
-    // モバイル時のみサイドバーを閉じる
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-  };
-
-  // 各ページ共通のエピソードカードグリッド描画関数
   const renderEpisodeGrid = (trackList, emptyMessage, emptyIcon) => {
     if (trackList.length === 0) {
       return (
@@ -396,7 +353,7 @@ export default function RadioApp() {
               </button>
 
               {/* プレイリスト追加ドロップダウン */}
-              <div style={{ position: 'relative' }} ref={dropdownRef}>
+              <div style={{ position: 'relative' }}>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -414,7 +371,11 @@ export default function RadioApp() {
                 </button>
 
                 {activeDropdownEpisodeId === ep.id && (
-                  <div style={styles.playlistDropdownMenu} className="animate-fade-in">
+                  <div 
+                    style={styles.playlistDropdownMenu} 
+                    className="animate-fade-in"
+                    onClick={(e) => e.stopPropagation()} // 親へのイベント伝播を防止
+                  >
                     <p style={styles.dropdownMenuTitle}>プレイリストに追加</p>
                     {playlists.map((pl) => {
                       const inPlaylist = pl.episodeIds.includes(ep.id);
@@ -433,6 +394,18 @@ export default function RadioApp() {
                   </div>
                 )}
               </div>
+
+              {/* エピソード削除ボタン */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(ep.id);
+                }}
+                style={styles.deleteBtn}
+                title="エピソードを削除"
+              >
+                <Trash2 size={18} />
+              </button>
             </div>
           </div>
         ))}
@@ -440,7 +413,6 @@ export default function RadioApp() {
     );
   };
 
-  // 埋め込みCSSアニメーション
   const animationStyles = `
     @keyframes slideUp {
       from { transform: translateY(100%); opacity: 0.9; }
@@ -463,10 +435,29 @@ export default function RadioApp() {
       transform: translateY(-4px);
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
     }
-    
+
+    /* レスポンシブ対応のスタイル上書き */
     @media (max-width: 768px) {
-      .hamburger-show {
+      .responsive-sidebar {
+        left: ${sidebarOpen ? '0' : '-250px'} !important;
+      }
+      .responsive-main {
+        margin-left: 0 !important;
+        padding-top: 5rem !important;
+      }
+      .responsive-hamburger {
         display: flex !important;
+      }
+    }
+    @media (min-width: 769px) {
+      .responsive-sidebar {
+        left: 0 !important;
+      }
+      .responsive-main {
+        margin-left: 250px !important;
+      }
+      .responsive-hamburger {
+        display: none !important;
       }
     }
   `;
@@ -476,12 +467,7 @@ export default function RadioApp() {
       <style>{animationStyles}</style>
 
       {/* サイドバー */}
-      <aside
-        style={{
-          ...styles.sidebar,
-          left: sidebarOpen ? 0 : '-250px',
-        }}
-      >
+      <aside className="responsive-sidebar" style={styles.sidebar}>
         <div style={styles.sidebarHeader}>
           <Music size={24} style={{ color: '#4f46e5' }} />
           <h1 style={styles.sidebarTitle}>ラジオ</h1>
@@ -489,7 +475,10 @@ export default function RadioApp() {
 
         <nav style={styles.sidebarNav}>
           <button
-            onClick={() => handleNavigate('browse')}
+            onClick={() => {
+              setCurrentPage('browse');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'browse' ? styles.navButtonActive : {}),
@@ -499,7 +488,10 @@ export default function RadioApp() {
             <span>ブラウズ</span>
           </button>
           <button
-            onClick={() => handleNavigate('upload')}
+            onClick={() => {
+              setCurrentPage('upload');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'upload' ? styles.navButtonActive : {}),
@@ -509,7 +501,10 @@ export default function RadioApp() {
             <span>アップロード</span>
           </button>
           <button
-            onClick={() => handleNavigate('favorites')}
+            onClick={() => {
+              setCurrentPage('favorites');
+              setSidebarOpen(false);
+            }}
             style={{
               ...styles.navButton,
               ...(currentPage === 'favorites' ? styles.navButtonActive : {}),
@@ -547,7 +542,11 @@ export default function RadioApp() {
             {playlists.map((pl) => (
               <button
                 key={pl.id}
-                onClick={() => handleNavigate('playlist', pl.id)}
+                onClick={() => {
+                  setCurrentPage('playlist');
+                  setSelectedPlaylistId(pl.id);
+                  setSidebarOpen(false);
+                }}
                 style={{
                   ...styles.playlistButton,
                   borderLeft: `4px solid ${pl.color}`,
@@ -563,16 +562,9 @@ export default function RadioApp() {
       </aside>
 
       {/* メインコンテンツ */}
-      <main style={styles.mainContent}>
+      <main className="responsive-main" style={styles.mainContent}>
         {/* ハンバーガーメニュー */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          style={{
-            ...styles.hamburgerBtn,
-            display: isMobile ? 'flex' : 'none',
-          }}
-          className="hamburger-show"
-        >
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="responsive-hamburger" style={styles.hamburgerBtn}>
           <Menu size={24} />
         </button>
 
@@ -735,7 +727,7 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* 拡張プレイヤー（アニメーション適用） */}
+        {/* 拡張プレイヤー */}
         {playerExpanded && currentEpisode && (
           <div style={styles.expandedPlayer} className="animate-slide-up">
             <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn}>
@@ -820,6 +812,7 @@ export default function RadioApp() {
 }
 
 const styles = {
+  // ... (既存のスタイル群は変更なし)
   appContainer: {
     display: 'flex',
     height: '100vh',
@@ -1386,5 +1379,20 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  /* 追記スタイル */
+  deleteBtn: {
+    width: '36px',
+    height: '36px',
+    padding: '0.5rem',
+    backgroundColor: '#f3f4f6',
+    color: '#ef4444',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s',
   },
 };
