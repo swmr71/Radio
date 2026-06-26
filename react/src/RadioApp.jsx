@@ -44,9 +44,38 @@ export default function RadioApp() {
   const [showPlaylistForm, setShowPlaylistForm] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [playerExpanded, setPlayerExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
+  const dropdownRef = useRef(null);
+
+  // レスポンシブ対応
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth <= 768;
+      setIsMobile(mobile);
+      // モバイルでない場合はサイドバーを開く
+      if (!mobile) {
+        setSidebarOpen(true);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // ドロップダウン外側クリック時に閉じる
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setActiveDropdownEpisodeId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetchEpisodes();
@@ -304,7 +333,18 @@ export default function RadioApp() {
 
   const handleExpandPlayer = () => {
     setPlayerExpanded(true);
-    setSidebarOpen(false); // ボトムが開いたらサイドバーなどのタブメニューを閉じる
+  };
+
+  // ナビゲーション時の処理
+  const handleNavigate = (page, playlistId = null) => {
+    setCurrentPage(page);
+    if (playlistId) {
+      setSelectedPlaylistId(playlistId);
+    }
+    // モバイル時のみサイドバーを閉じる
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
   };
 
   // 各ページ共通のエピソードカードグリッド描画関数
@@ -356,7 +396,7 @@ export default function RadioApp() {
               </button>
 
               {/* プレイリスト追加ドロップダウン */}
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative' }} ref={dropdownRef}>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -423,6 +463,12 @@ export default function RadioApp() {
       transform: translateY(-4px);
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
     }
+    
+    @media (max-width: 768px) {
+      .hamburger-show {
+        display: flex !important;
+      }
+    }
   `;
 
   return (
@@ -430,7 +476,12 @@ export default function RadioApp() {
       <style>{animationStyles}</style>
 
       {/* サイドバー */}
-      <aside style={{ ...styles.sidebar, left: sidebarOpen ? 0 : '-250px' }}>
+      <aside
+        style={{
+          ...styles.sidebar,
+          left: sidebarOpen ? 0 : '-250px',
+        }}
+      >
         <div style={styles.sidebarHeader}>
           <Music size={24} style={{ color: '#4f46e5' }} />
           <h1 style={styles.sidebarTitle}>ラジオ</h1>
@@ -438,10 +489,7 @@ export default function RadioApp() {
 
         <nav style={styles.sidebarNav}>
           <button
-            onClick={() => {
-              setCurrentPage('browse');
-              setSidebarOpen(false);
-            }}
+            onClick={() => handleNavigate('browse')}
             style={{
               ...styles.navButton,
               ...(currentPage === 'browse' ? styles.navButtonActive : {}),
@@ -451,10 +499,7 @@ export default function RadioApp() {
             <span>ブラウズ</span>
           </button>
           <button
-            onClick={() => {
-              setCurrentPage('upload');
-              setSidebarOpen(false);
-            }}
+            onClick={() => handleNavigate('upload')}
             style={{
               ...styles.navButton,
               ...(currentPage === 'upload' ? styles.navButtonActive : {}),
@@ -464,10 +509,7 @@ export default function RadioApp() {
             <span>アップロード</span>
           </button>
           <button
-            onClick={() => {
-              setCurrentPage('favorites');
-              setSidebarOpen(false);
-            }}
+            onClick={() => handleNavigate('favorites')}
             style={{
               ...styles.navButton,
               ...(currentPage === 'favorites' ? styles.navButtonActive : {}),
@@ -505,11 +547,7 @@ export default function RadioApp() {
             {playlists.map((pl) => (
               <button
                 key={pl.id}
-                onClick={() => {
-                  setCurrentPage('playlist');
-                  setSelectedPlaylistId(pl.id);
-                  setSidebarOpen(false);
-                }}
+                onClick={() => handleNavigate('playlist', pl.id)}
                 style={{
                   ...styles.playlistButton,
                   borderLeft: `4px solid ${pl.color}`,
@@ -527,7 +565,14 @@ export default function RadioApp() {
       {/* メインコンテンツ */}
       <main style={styles.mainContent}>
         {/* ハンバーガーメニュー */}
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} style={styles.hamburgerBtn}>
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          style={{
+            ...styles.hamburgerBtn,
+            display: isMobile ? 'flex' : 'none',
+          }}
+          className="hamburger-show"
+        >
           <Menu size={24} />
         </button>
 
@@ -1167,7 +1212,7 @@ const styles = {
     bottom: 0,
     left: 0,
     right: 0,
-    zIndex: 250, /* 拡張時メニューより前に出るよう引き上げ */
+    zIndex: 250,
   },
   miniPlayer: {
     height: '70px',
