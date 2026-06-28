@@ -16,6 +16,7 @@ import {
   Music,
   Menu,
   ListPlus,
+  MessageSquare, // 追加
 } from 'lucide-react';
 
 export default function RadioApp() {
@@ -55,6 +56,17 @@ export default function RadioApp() {
     fetchEpisodes();
   }, []);
 
+  // 文字起こし中のエピソード（pending / processing）がある場合、5秒おきに自動更新（ポーリング）
+  useEffect(() => {
+    const hasProcessing = episodes.some(
+      (ep) => ep.transcriptStatus === 'pending' || ep.transcriptStatus === 'processing'
+    );
+    if (hasProcessing) {
+      const interval = setInterval(fetchEpisodes, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [episodes]);
+
   useEffect(() => {
     filterEpisodes();
   }, [episodes, searchQuery]);
@@ -76,15 +88,43 @@ export default function RadioApp() {
           });
       }
     }
-  }, [currentEpisode]);
+  }, [currentEpisode?.id]); // idが変わったときだけ初期化するよう修正（文字起こしデータ更新でリセットされないため）
+
+  // 再生位置に合わせて文字起こしテキストを自動スクロール追従させる
+  useEffect(() => {
+    if (playerExpanded && currentEpisode?.transcriptStatus === 'completed') {
+      const activeUtterance = document.querySelector('.transcript-active');
+      if (activeUtterance) {
+        activeUtterance.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }, [currentTime, playerExpanded, currentEpisode]);
 
   const fetchEpisodes = async () => {
     try {
       const res = await fetch('/api/episodes');
       const data = await res.json();
       setEpisodes(data);
+
+      // もし現在再生中のエピソードがポーリングで「完了」になったら、詳細データも再取得して反映
+      if (currentEpisode) {
+        const updatedTrack = data.find(ep => ep.id === currentEpisode.id);
+        if (updatedTrack && updatedTrack.transcriptStatus === 'completed' && currentEpisode.transcriptStatus !== 'completed') {
+          refreshCurrentEpisodeDetails(currentEpisode.id);
+        }
+      }
     } catch (error) {
       console.error('Failed to fetch episodes:', error);
+    }
+  };
+
+  const refreshCurrentEpisodeDetails = async (id) => {
+    try {
+      const res = await fetch(`/api/episodes/${id}`);
+      const data = await res.json();
+      setCurrentEpisode(data);
+    } catch (error) {
+      console.error('Failed to fetch episode details:', error);
     }
   };
 
@@ -119,14 +159,12 @@ export default function RadioApp() {
     return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
 
-      // プログレスイベント
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable) {
           const percentComplete = (e.loaded / e.total) * 100;
           setUploadProgress(percentComplete);
           setUploadedSize(e.loaded);
 
-          // アップロード速度計算（バイト/秒）
           const elapsedSeconds = (Date.now() - uploadStartTimeRef.current) / 1000;
           if (elapsedSeconds > 0) {
             const speed = e.loaded / elapsedSeconds;
@@ -135,10 +173,9 @@ export default function RadioApp() {
         }
       });
 
-      // 完了イベント
       xhr.addEventListener('load', () => {
         if (xhr.status === 200) {
-          alert('アップロード成功！');
+          alert('アップロード成功！文字起こしを開始します。');
           setUploadFile(null);
           setEpisodeTitle('');
           setEpisodeDesc('');
@@ -160,16 +197,8 @@ export default function RadioApp() {
         resolve();
       });
 
-      // エラーイベント
       xhr.addEventListener('error', () => {
         alert(`エラー: ネットワーク接続に失敗しました`);
-        setUploading(false);
-        resolve();
-      });
-
-      // キャンセルイベント
-      xhr.addEventListener('abort', () => {
-        alert('アップロードがキャンセルされました');
         setUploading(false);
         resolve();
       });
@@ -179,9 +208,11 @@ export default function RadioApp() {
     });
   };
 
-  const playEpisode = (episode) => {
-    setCurrentEpisode(episode);
+  // 一覧からエピソードを選択した際、文字起こしテキスト（詳細情報）も含めて取得して再生
+  const playEpisode = async (episode) => {
+    setCurrentEpisode(episode); // まず再生をすぐに始めるためにセット
     setIsPlaying(true);
+    await refreshCurrentEpisodeDetails(episode.id); // 裏で文字起こし付きの詳細データを取得
   };
 
   const togglePlayPause = () => {
@@ -213,6 +244,15 @@ export default function RadioApp() {
     if (audioRef.current) {
       audioRef.current.currentTime = time;
       setCurrentTime(time);
+    }
+  };
+
+  // 文字起こしのタイムスタンプをクリックした時のシーク処理
+  const handleTranscriptClick = (startTimeMs) => {
+    const timeSecs = startTimeMs / 1000;
+    if (audioRef.current) {
+      audioRef.current.currentTime = timeSecs;
+      setCurrentTime(timeSecs);
     }
   };
 
@@ -353,7 +393,25 @@ export default function RadioApp() {
 
   const handleExpandPlayer = () => {
     setPlayerExpanded(true);
-    // サイドバーを勝手に閉じないように修正（全画面プレイヤーが上に被さるため不要）
+    if (currentEpisode) {
+      refreshCurrentEpisodeDetails(currentEpisode.id); // プレイヤーを開いた瞬間に最新の文字起こし状況を取得
+    }
+  };
+
+  // 文字起こしステータスに応じたバッジの描画
+  const renderStatusBadge = (status) => {
+    switch (status) {
+      case 'pending':
+        return <span style={{ ...styles.badge, backgroundColor: '#f3f4f6', color: '#6b7280' }}>書き起こし待機中</span>;
+      case 'processing':
+        return <span style={{ ...styles.badge, backgroundColor: '#dbeafe', color: '#1e40af' }} className="animate-pulse">AI文字起こし中...</span>;
+      case 'completed':
+        return <span style={{ ...styles.badge, backgroundColor: '#d1fae5', color: '#065f46' }}>文字起こし完了</span>;
+      case 'failed':
+        return <span style={{ ...styles.badge, backgroundColor: '#fee2e2', color: '#991b1b' }}>文字起こし失敗</span>;
+      default:
+        return null;
+    }
   };
 
   const renderEpisodeGrid = (trackList, emptyMessage, emptyIcon) => {
@@ -383,7 +441,9 @@ export default function RadioApp() {
               <Music size={48} style={{ color: '#fff' }} />
             </div>
             <div style={styles.episodeCardContent} onClick={() => playEpisode(ep)}>
-              <h3 style={styles.episodeTitle}>{ep.title}</h3>
+              {/* ステータスバッジを表示 */}
+              <div style={{ marginBottom: '0.25rem' }}>{renderStatusBadge(ep.transcriptStatus)}</div>
+              <h3 style={styles.episodeTitle} title={ep.title}>{ep.title}</h3>
               {ep.description && <p style={styles.episodeDesc}>{ep.description}</p>}
               <p style={styles.episodeDate}>
                 {new Date(ep.uploadedAt).toLocaleDateString('ja-JP')}
@@ -403,7 +463,6 @@ export default function RadioApp() {
                 {favorites.has(ep.id) ? <Heart size={18} /> : <HeartOff size={18} />}
               </button>
 
-              {/* プレイリスト追加ドロップダウン */}
               <div style={{ position: 'relative' }}>
                 <button
                   onClick={(e) => {
@@ -425,7 +484,7 @@ export default function RadioApp() {
                   <div 
                     style={styles.playlistDropdownMenu} 
                     className="animate-fade-in"
-                    onClick={(e) => e.stopPropagation()} // 親へのイベント伝播を防止
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <p style={styles.dropdownMenuTitle}>プレイリストに追加</p>
                     {playlists.map((pl) => {
@@ -446,7 +505,6 @@ export default function RadioApp() {
                 )}
               </div>
 
-              {/* エピソード削除ボタン */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -473,11 +531,18 @@ export default function RadioApp() {
       from { opacity: 0; transform: scale(0.98); }
       to { opacity: 1; transform: scale(1); }
     }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .5; }
+    }
     .animate-slide-up {
       animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
     .animate-fade-in {
       animation: fadeIn 0.2s ease-out forwards;
+    }
+    .animate-pulse {
+      animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
     }
     .episode-card {
       transition: transform 0.2s ease, box-shadow 0.2s ease !important;
@@ -487,7 +552,60 @@ export default function RadioApp() {
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
     }
 
-    /* レスポンシブ対応のスタイル上書き */
+    /* 文字起こし行のホバー効果とハイライトアニメーション */
+    .transcript-row {
+      transition: background-color 0.2s ease, border-left-color 0.2s ease;
+    }
+    .transcript-row:hover {
+      background-color: #f3f4f6;
+    }
+    .transcript-active {
+      background-color: #f0fdf4 !important;
+      border-left-color: #22c55e !important;
+    }
+
+    /* 拡張プレイヤー用のレスポンシブ2カラムレイアウト */
+    .player-layout {
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+      max-width: 1000px;
+      width: 100%;
+      padding: 1rem;
+    }
+    @media (min-width: 769px) {
+      .player-layout {
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+      .player-left-panel {
+        flex: 1;
+        max-width: 420px;
+        position: sticky;
+        top: 2rem;
+      }
+      .player-right-panel {
+        flex: 1.2;
+        background-color: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        height: 75vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .responsive-sidebar {
+        left: ${sidebarOpen ? '0' : '-250px'} !important;
+      }
+      .responsive-main {
+        margin-left: 0 !important;
+        padding-top: 5rem !important;
+      }
+      .responsive-hamburger {
+        display: flex !important;
+      }
+    }
     @media (max-width: 768px) {
       .responsive-sidebar {
         left: ${sidebarOpen ? '0' : '-250px'} !important;
@@ -498,6 +616,12 @@ export default function RadioApp() {
       }
       .responsive-hamburger {
         display: flex !important;
+      }
+      .player-right-panel {
+        width: 100%;
+        margin-top: 1rem;
+        border-top: 1px solid #e5e7eb;
+        padding-top: 1.5rem;
       }
     }
     @media (min-width: 769px) {
@@ -512,6 +636,8 @@ export default function RadioApp() {
       }
     }
   `;
+
+  const currentMs = currentTime * 1000;
 
   return (
     <div style={styles.appContainer}>
@@ -614,12 +740,10 @@ export default function RadioApp() {
 
       {/* メインコンテンツ */}
       <main className="responsive-main" style={styles.mainContent}>
-        {/* ハンバーガーメニュー */}
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="responsive-hamburger" style={styles.hamburgerBtn}>
           <Menu size={24} />
         </button>
 
-        {/* ブラウズページ */}
         {currentPage === 'browse' && (
           <div style={styles.page}>
             <div style={styles.searchContainer}>
@@ -644,7 +768,6 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* アップロードページ */}
         {currentPage === 'upload' && (
           <div style={styles.page} className="animate-fade-in">
             <section style={styles.section}>
@@ -677,7 +800,7 @@ export default function RadioApp() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="mp3"
+                      accept="audio/*"
                       onChange={(e) => setUploadFile(e.target.files[0])}
                       style={styles.fileInput}
                     />
@@ -689,7 +812,7 @@ export default function RadioApp() {
 
                 {uploading && (
                   <div style={styles.progressContainer}>
-                    <div style={styles.progressBar}>
+                    <div style={styles.progressBarContainer}>
                       <div
                         style={{
                           ...styles.progressFill,
@@ -724,7 +847,6 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* お気に入りページ */}
         {currentPage === 'favorites' && (
           <div style={styles.page}>
             <section style={styles.section}>
@@ -738,7 +860,6 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* カスタムプレイリストページ */}
         {currentPage === 'playlist' && (
           <div style={styles.page}>
             {(() => {
@@ -800,82 +921,133 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* 拡張プレイヤー */}
+        {/* 拡張プレイヤー（文字起こし表示機能付き2カラム版） */}
         {playerExpanded && currentEpisode && (
           <div style={styles.expandedPlayer} className="animate-slide-up">
             <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn}>
               <X size={24} />
             </button>
 
-            <div style={styles.expandedPlayerContent}>
-              <div style={styles.albumArt}>
-                <Music size={96} style={{ color: '#4f46e5' }} />
+            <div className="player-layout">
+              {/* 左パネル: プレイヤーコントロール */}
+              <div className="player-left-panel" style={styles.expandedPlayerContent}>
+                <div style={styles.albumArt}>
+                  <Music size={96} style={{ color: '#4f46e5' }} />
+                </div>
+
+                <h2 style={styles.expandedPlayerTitle}>{currentEpisode.title}</h2>
+                {currentEpisode.description && <p style={styles.expandedPlayerDesc}>{currentEpisode.description}</p>}
+
+                <div style={styles.progressSection}>
+                  <input
+                    type="range"
+                    min="0"
+                    max={duration || 0}
+                    value={currentTime}
+                    onChange={handleSeek}
+                    style={styles.playerRangeInput}
+                  />
+                  <div style={styles.timeDisplay}>
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                </div>
+
+                <div style={styles.playerControls}>
+                  <button
+                    onClick={() => setIsShuffle(!isShuffle)}
+                    style={{
+                      ...styles.controlButton,
+                      ...(isShuffle ? styles.controlButtonActive : {}),
+                    }}
+                  >
+                    <Shuffle size={24} />
+                  </button>
+
+                  <button onClick={playPrev} style={styles.controlButton}>
+                    <SkipBack size={24} />
+                  </button>
+
+                  <button onClick={togglePlayPause} style={styles.playButtonLarge}>
+                    {isPlaying ? <Pause size={32} /> : <Play size={32} />}
+                  </button>
+
+                  <button onClick={playNext} style={styles.controlButton}>
+                    <SkipForward size={24} />
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (repeatMode === 'none') setRepeatMode('all');
+                      else if (repeatMode === 'all') setRepeatMode('one');
+                      else setRepeatMode('none');
+                    }}
+                    style={{
+                      ...styles.controlButton,
+                      ...(repeatMode !== 'none' ? styles.controlButtonActive : {}),
+                    }}
+                  >
+                    {repeatMode === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
+                  </button>
+                </div>
+
+                <p style={styles.repeatModeLabel}>
+                  {repeatMode === 'none' && 'リピート: オフ'}
+                  {repeatMode === 'all' && 'リピート: すべて'}
+                  {repeatMode === 'one' && 'リピート: 1曲'}
+                </p>
               </div>
 
-              <h2 style={styles.expandedPlayerTitle}>{currentEpisode.title}</h2>
-              {currentEpisode.description && <p style={styles.expandedPlayerDesc}>{currentEpisode.description}</p>}
+              {/* 右パネル: 文字起こし表示コンポーネント */}
+              <div className="player-right-panel">
+                <div style={styles.transcriptHeader}>
+                  <MessageSquare size={18} style={{ color: '#4f46e5' }} />
+                  <span style={styles.transcriptHeaderTitle}>AI文字起こし (話者分離)</span>
+                </div>
 
-              {/* プログレスバー */}
-              <div style={styles.progressSection}>
-                <input
-                  type="range"
-                  min="0"
-                  max={duration || 0}
-                  value={currentTime}
-                  onChange={handleSeek}
-                  style={styles.progressBar}
-                />
-                <div style={styles.timeDisplay}>
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
+                <div style={styles.transcriptScrollArea}>
+                  {currentEpisode.transcriptStatus === 'completed' && currentEpisode.transcript ? (
+                    currentEpisode.transcript.map((item, index) => {
+                      const isActive = currentMs >= item.start && currentMs <= item.end;
+                      return (
+                        <div
+                          key={index}
+                          onClick={() => handleTranscriptClick(item.start)}
+                          className={`transcript-row ${isActive ? 'transcript-active' : ''}`}
+                          style={styles.transcriptUtterance}
+                        >
+                          <div style={styles.transcriptMeta}>
+                            <span
+                              style={{
+                                ...styles.transcriptSpeaker,
+                                color: item.speaker === 'A' ? '#4f46e5' : item.speaker === 'B' ? '#10b981' : '#f59e0b',
+                              }}
+                            >
+                              話者 {item.speaker}
+                            </span>
+                            <span style={styles.transcriptTimeStamp}>{formatTime(item.start / 1000)}</span>
+                          </div>
+                          <p style={styles.transcriptText}>{item.text}</p>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <div style={styles.transcriptStatusBox}>
+                      {currentEpisode.transcriptStatus === 'processing' && (
+                        <div style={{ textAlign: 'center' }}>
+                          <div className="animate-pulse" style={{ color: '#1e40af', fontWeight: '500' }}>AI文字起こしを作成中...</div>
+                          <p style={{ fontSize: '0.85rem', color: '#6b7280', marginTop: '0.5rem' }}>音声の長さによって数分かかる場合があります。</p>
+                        </div>
+                      )}
+                      {currentEpisode.transcriptStatus === 'pending' && '文字起こしのキューを待機しています...'}
+                      {currentEpisode.transcriptStatus === 'failed' && '🚨 文字起こし処理に失敗しました。'}
+                      {(currentEpisode.transcriptStatus === 'none' || !currentEpisode.transcriptStatus) && (
+                        <p style={{ color: '#6b7280' }}>文字起こしデータがありません。</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* コントロールボタン */}
-              <div style={styles.playerControls}>
-                <button
-                  onClick={() => setIsShuffle(!isShuffle)}
-                  style={{
-                    ...styles.controlButton,
-                    ...(isShuffle ? styles.controlButtonActive : {}),
-                  }}
-                >
-                  <Shuffle size={24} />
-                </button>
-
-                <button onClick={playPrev} style={styles.controlButton}>
-                  <SkipBack size={24} />
-                </button>
-
-                <button onClick={togglePlayPause} style={styles.playButtonLarge}>
-                  {isPlaying ? <Pause size={32} /> : <Play size={32} />}
-                </button>
-
-                <button onClick={playNext} style={styles.controlButton}>
-                  <SkipForward size={24} />
-                </button>
-
-                <button
-                  onClick={() => {
-                    if (repeatMode === 'none') setRepeatMode('all');
-                    else if (repeatMode === 'all') setRepeatMode('one');
-                    else setRepeatMode('none');
-                  }}
-                  style={{
-                    ...styles.controlButton,
-                    ...(repeatMode !== 'none' ? styles.controlButtonActive : {}),
-                  }}
-                >
-                  {repeatMode === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
-                </button>
-              </div>
-
-              {/* リピートモード表示 */}
-              <p style={styles.repeatModeLabel}>
-                {repeatMode === 'none' && 'リピート: オフ'}
-                {repeatMode === 'all' && 'リピート: すべて'}
-                {repeatMode === 'one' && 'リピート: 1曲'}
-              </p>
             </div>
           </div>
         )}
@@ -885,7 +1057,7 @@ export default function RadioApp() {
 }
 
 const styles = {
-  // ... (既存のスタイル群は変更なし)
+  // ... (既存のスタイル群はすべて保持)
   appContainer: {
     display: 'flex',
     height: '100vh',
@@ -1367,7 +1539,6 @@ const styles = {
     color: '#6b7280',
   },
   expandedPlayerContent: {
-    maxWidth: '400px',
     width: '100%',
     textAlign: 'center',
   },
@@ -1396,7 +1567,7 @@ const styles = {
   progressSection: {
     marginBottom: '2rem',
   },
-  progressBar: {
+  playerRangeInput: {
     width: '100%',
     height: '6px',
     accentColor: '#4f46e5',
@@ -1453,7 +1624,6 @@ const styles = {
     fontWeight: '500',
     margin: 0,
   },
-  /* 追記スタイル */
   deleteBtn: {
     width: '36px',
     height: '36px',
@@ -1472,7 +1642,7 @@ const styles = {
     marginTop: '1.5rem',
     marginBottom: '1.5rem',
   },
-  progressBar: {
+  progressBarContainer: {
     width: '100%',
     height: '8px',
     backgroundColor: '#e5e7eb',
@@ -1491,5 +1661,73 @@ const styles = {
     fontSize: '0.875rem',
     color: '#6b7280',
     fontFamily: 'monospace',
+  },
+
+  /* 追記した文字起こし関連スタイル */
+  badge: {
+    display: 'inline-block',
+    padding: '0.25rem 0.5rem',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    borderRadius: '4px',
+  },
+  transcriptHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '1rem',
+    borderBottom: '1px solid #e5e7eb',
+    backgroundColor: '#fff',
+  },
+  transcriptHeaderTitle: {
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#374151',
+  },
+  transcriptScrollArea: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '1rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+  },
+  transcriptUtterance: {
+    padding: '0.75rem 1rem',
+    borderRadius: '8px',
+    backgroundColor: '#fff',
+    borderLeft: '4px solid #e5e7eb',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  transcriptMeta: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '0.25rem',
+  },
+  transcriptSpeaker: {
+    fontSize: '0.8rem',
+    fontWeight: 'bold',
+  },
+  transcriptTimeStamp: {
+    fontSize: '0.75rem',
+    color: '#9ca3af',
+    fontFamily: 'monospace',
+  },
+  transcriptText: {
+    fontSize: '0.9rem',
+    color: '#374151',
+    margin: 0,
+    lineHeight: '1.5',
+  },
+  transcriptStatusBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    color: '#6b7280',
+    padding: '2rem',
   },
 };
