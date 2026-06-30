@@ -7,6 +7,8 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
       ? rawConfig
       : Array.isArray(rawConfig?.slides)
       ? rawConfig.slides
+      : rawConfig && typeof rawConfig === 'object'
+      ? [rawConfig]
       : [];
 
     const durationMs = Number.isFinite(duration) ? duration * 1000 : 0;

@@ -247,6 +247,8 @@ function normalizeSlideshowConfig(rawConfig, imageMap) {
     ? rawConfig
     : Array.isArray(rawConfig?.slides)
     ? rawConfig.slides
+    : rawConfig && typeof rawConfig === 'object'
+    ? [rawConfig]
     : null;
 
   if (!slides) return null;
