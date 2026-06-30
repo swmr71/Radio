@@ -800,7 +800,7 @@ export default function RadioApp() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="audio/*"
+                      accept="audio/*,.zip"
                       onChange={(e) => setUploadFile(e.target.files[0])}
                       style={styles.fileInput}
                     />
