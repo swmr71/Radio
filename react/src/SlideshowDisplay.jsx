@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Music } from 'lucide-react';
 
 export function SlideshowDisplay({ config, currentTime, duration }) {
@@ -37,39 +37,12 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
   };
 
   const slides = normalizeSlides(config);
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const currentTimeMs = currentTime * 1000;
+  const currentImageIndex = slides.findIndex(
+    (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
+  );
 
-  useEffect(() => {
-    if (slides.length === 0) return;
-
-    // currentTime に一致するスライドがあれば使い、なければ直近のスライドを使う
-    const imageIndex = slides.findIndex(
-      (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
-    );
-
-    if (imageIndex !== -1) {
-      setCurrentImageIndex(imageIndex);
-      return;
-    }
-
-    const fallbackIndex = slides.reduce((latestIndex, slide, index) => {
-      if (currentTimeMs >= slide.start) {
-        return index;
-      }
-      return latestIndex;
-    }, 0);
-
-    setCurrentImageIndex(fallbackIndex);
-  }, [currentTimeMs, slides]);
-
-  useEffect(() => {
-    if (currentImageIndex > slides.length - 1) {
-      setCurrentImageIndex(0);
-    }
-  }, [slides, currentImageIndex]);
-
-  if (slides.length === 0) {
+  if (slides.length === 0 || currentImageIndex === -1) {
     return (
       <div style={styles.albumArt}>
         <Music size={64} />
