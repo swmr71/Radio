@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { AssemblyAI } from 'assemblyai'; // 追加
+import AdmZip from 'adm-zip'; // ZIP 解凍用
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,6 +20,7 @@ const aaiClient = aaiApiKey ? new AssemblyAI({ apiKey: aaiApiKey }) : null;
 
 // ディレクトリ設定
 const audioDir = path.join(__dirname, 'audio');
+const uploadsDir = path.join(__dirname, 'uploads');
 const dbPath = path.join(__dirname, 'episodes.db');
 
 // audioディレクトリが存在しない場合は作成
@@ -26,7 +28,12 @@ if (!fs.existsSync(audioDir)) {
   fs.mkdirSync(audioDir, { recursive: true });
 }
 
-// multer設定
+// uploadsディレクトリが存在しない場合は作成
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// multer設定（ZIP と音声ファイル両対応）
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, audioDir);
@@ -41,10 +48,12 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('audio/')) {
+    const mimetype = file.mimetype;
+    // 音声ファイルまたは ZIP を許可
+    if (mimetype.startsWith('audio/') || mimetype === 'application/zip' || mimetype === 'application/x-zip-compressed') {
       cb(null, true);
     } else {
-      cb(new Error('Invalid audio file type'));
+      cb(new Error('Invalid file type. Only audio files or ZIP archives are allowed.'));
     }
   },
   limits: {
@@ -55,7 +64,7 @@ const upload = multer({
 // SQLite3設定
 const db = new sqlite3.Database(dbPath);
 
-// カラム追加（transcript, transcript_status）
+// カラム追加（transcript, transcript_status, slideshow_config）
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS episodes (
@@ -66,7 +75,8 @@ db.serialize(() => {
       uploadedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
       duration INTEGER DEFAULT 0,
       transcript TEXT,
-      transcriptStatus TEXT DEFAULT 'none'
+      transcriptStatus TEXT DEFAULT 'none',
+      slideshowConfig TEXT
     )
   `);
 });
@@ -74,6 +84,7 @@ db.serialize(() => {
 // ミドルウェア
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
+app.use('/uploads', express.static(uploadsDir));
 
 // ============ バックグラウンド文字起こし関数 ============
 async function startTranscription(episodeId, filepath) {
@@ -165,55 +176,180 @@ app.get('/audio/:filename', (req, res) => {
 // GET /api/episodes - すべてのエピソード取得（ステータスも返す）
 app.get('/api/episodes', (req, res) => {
   db.all(
-    'SELECT id, title, description, filename, uploadedAt, transcriptStatus FROM episodes ORDER BY uploadedAt DESC',
+    'SELECT id, title, description, filename, uploadedAt, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
     (err, rows) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      res.json(rows);
+      // slideshowConfig を JSON にパース
+      const parsedRows = rows.map(row => ({
+        ...row,
+        slideshowConfig: row.slideshowConfig ? JSON.parse(row.slideshowConfig) : null
+      }));
+      res.json(parsedRows);
     }
   );
 });
 
-// POST /api/upload - 音声ファイルアップロード＆文字起こしキック
-app.post('/api/upload', upload.single('file'), (req, res) => {
+// ============ ZIP 解凍＋MP3+画像+JSON抽出ユーティリティ ============
+function extractZipAndGetConfig(zipFilePath) {
+  try {
+    const zip = new AdmZip(zipFilePath);
+    const entries = zip.getEntries();
+
+    let mp3File = null;
+    let jsonConfig = null;
+    const imageFiles = []; // 画像ファイルのリスト
+
+    for (const entry of entries) {
+      const filename = entry.name.toLowerCase();
+      
+      // MP3 ファイル
+      if (filename.endsWith('.mp3') && !mp3File) {
+        mp3File = {
+          name: entry.name,
+          data: entry.getData()
+        };
+      }
+      // JSON 設定ファイル
+      else if (filename.endsWith('.json') && !jsonConfig) {
+        try {
+          jsonConfig = JSON.parse(entry.getData().toString('utf-8'));
+        } catch (e) {
+          console.warn('Failed to parse JSON from ZIP:', e.message);
+        }
+      }
+      // 画像ファイル
+      else if (
+        !entry.isDirectory &&
+        (filename.endsWith('.jpg') ||
+          filename.endsWith('.jpeg') ||
+          filename.endsWith('.png') ||
+          filename.endsWith('.gif') ||
+          filename.endsWith('.webp'))
+      ) {
+        imageFiles.push({
+          originalName: entry.name,
+          data: entry.getData()
+        });
+      }
+    }
+
+    return { mp3File, jsonConfig, imageFiles };
+  } catch (error) {
+    console.error('ZIP extraction error:', error.message);
+    throw error;
+  }
+}
+
+// POST /api/upload - 音声ファイル（単独）または ZIP（MP3+JSON+画像）アップロード
+app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
   const { title, description } = req.body;
-  const filePath = path.join(audioDir, req.file.filename);
+  const uploadedFilePath = path.join(audioDir, req.file.filename);
+  const isZip = req.file.mimetype === 'application/zip' || req.file.mimetype === 'application/x-zip-compressed';
 
   if (!title) {
-    fs.unlinkSync(filePath);
+    fs.unlinkSync(uploadedFilePath);
     return res.status(400).json({ error: 'Title is required' });
   }
 
-  db.run(
-    "INSERT INTO episodes (title, description, filename, transcriptStatus) VALUES (?, ?, ?, 'pending')",
-    [title, description || '', req.file.filename],
-    function (err) {
-      if (err) {
-        fs.unlinkSync(filePath);
-        return res.status(500).json({ error: err.message });
+  try {
+    let audioFilename = req.file.filename;
+    let slideshowConfig = null;
+    const episodeTimestamp = Date.now();
+
+    // ZIP ファイルの場合、MP3、JSON、画像を抽出
+    if (isZip) {
+      const { mp3File, jsonConfig, imageFiles } = extractZipAndGetConfig(uploadedFilePath);
+
+      if (!mp3File) {
+        fs.unlinkSync(uploadedFilePath);
+        return res.status(400).json({ error: 'No MP3 file found in ZIP' });
       }
 
-      // クライアントには即座にレスポンスを返す
-      res.json({
-        id: this.lastID,
-        title,
-        description,
-        filename: req.file.filename,
-        uploadedAt: new Date().toISOString(),
-        transcriptStatus: 'pending'
-      });
+      // MP3 ファイルをサーバーに保存
+      audioFilename = `episode-${episodeTimestamp}.mp3`;
+      const audioFilePath = path.join(audioDir, audioFilename);
+      fs.writeFileSync(audioFilePath, mp3File.data);
 
-      // バックグラウンドで文字起こし処理を開始（非同期）
-      if (aaiClient) {
-        startTranscription(this.lastID, filePath);
+      // 画像ファイルを保存し、JSON パスを更新
+      const imageMap = {}; // 元のファイル名 → 新しいパスのマッピング
+      
+      if (imageFiles.length > 0) {
+        for (const imgFile of imageFiles) {
+          // ファイル名をサニタイズ（安全な名前に変換）
+          const ext = path.extname(imgFile.originalName);
+          const baseName = path.basename(imgFile.originalName, ext).replace(/[^a-z0-9_-]/gi, '_');
+          const newImageFilename = `episode-${episodeTimestamp}-${baseName}${ext}`;
+          const imagePath = path.join(uploadsDir, newImageFilename);
+          
+          fs.writeFileSync(imagePath, imgFile.data);
+          
+          // マッピング作成（JSON の相対パス → 実際のパス）
+          imageMap[path.basename(imgFile.originalName)] = `/uploads/${newImageFilename}`;
+          
+          console.log(`[Upload] Image extracted: ${newImageFilename}`);
+        }
       }
+
+      // JSON がある場合、画像パスを更新
+      if (jsonConfig && Array.isArray(jsonConfig)) {
+        slideshowConfig = jsonConfig.map(slide => ({
+          ...slide,
+          // 相対パス（元のファイル名）を絶対パス（/uploads/...）に変換
+          image: imageMap[slide.image] || slide.image
+        }));
+        console.log(`[Upload] Slideshow config loaded with ${slideshowConfig.length} slides`);
+      }
+
+      // ZIP は削除
+      fs.unlinkSync(uploadedFilePath);
+
+      console.log(`[Upload] ZIP extracted: ${audioFilename}`);
     }
-  );
+
+    // DB に挿入
+    db.run(
+      "INSERT INTO episodes (title, description, filename, transcriptStatus, slideshowConfig) VALUES (?, ?, ?, 'pending', ?)",
+      [title, description || '', audioFilename, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
+      function (err) {
+        if (err) {
+          const audioPath = path.join(audioDir, audioFilename);
+          if (fs.existsSync(audioPath)) {
+            fs.unlinkSync(audioPath);
+          }
+          return res.status(500).json({ error: err.message });
+        }
+
+        // クライアントには即座にレスポンスを返す
+        res.json({
+          id: this.lastID,
+          title,
+          description,
+          filename: audioFilename,
+          uploadedAt: new Date().toISOString(),
+          transcriptStatus: 'pending',
+          slideshowConfig: slideshowConfig || null
+        });
+
+        // バックグラウンドで文字起こし処理を開始（非同期）
+        if (aaiClient) {
+          const audioFilePath = path.join(audioDir, audioFilename);
+          startTranscription(this.lastID, audioFilePath);
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Upload error:', error.message);
+    if (fs.existsSync(uploadedFilePath)) {
+      fs.unlinkSync(uploadedFilePath);
+    }
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // DELETE /api/episodes/:id - エピソード削除
@@ -269,6 +405,16 @@ app.get('/api/episodes/:id', (req, res) => {
           row.transcript = [];
         }
       }
+
+      // slideshowConfig もパース
+      if (row.slideshowConfig) {
+        try {
+          row.slideshowConfig = JSON.parse(row.slideshowConfig);
+        } catch (e) {
+          row.slideshowConfig = null;
+        }
+      }
+
       res.json(row);
     }
   );
