@@ -242,6 +242,48 @@ function extractZipAndGetConfig(zipFilePath) {
   }
 }
 
+function normalizeSlideshowConfig(rawConfig, imageMap) {
+  const slides = Array.isArray(rawConfig)
+    ? rawConfig
+    : Array.isArray(rawConfig?.slides)
+    ? rawConfig.slides
+    : null;
+
+  if (!slides) return null;
+
+  const imageMapEntries = Object.entries(imageMap);
+
+  const resolveImagePath = (imageRef) => {
+    if (typeof imageRef !== 'string' || !imageRef.trim()) {
+      return null;
+    }
+
+    const normalized = imageRef.replace(/\\/g, '/').trim();
+    const baseName = path.basename(normalized);
+    const candidates = [normalized, baseName, `./${baseName}`];
+
+    for (const key of candidates) {
+      if (imageMap[key]) {
+        return imageMap[key];
+      }
+    }
+
+    const lowered = normalized.toLowerCase();
+    for (const [key, mappedPath] of imageMapEntries) {
+      if (key.toLowerCase() === lowered) {
+        return mappedPath;
+      }
+    }
+
+    return normalized;
+  };
+
+  return slides.map((slide) => ({
+    ...slide,
+    image: resolveImagePath(slide.image ?? slide.imagePath ?? slide.src ?? slide.url),
+  }));
+}
+
 // POST /api/upload - 音声ファイル（単独）または ZIP（MP3+JSON+画像）アップロード
 app.post('/api/upload', upload.single('file'), async (req, res) => {
   if (!req.file) {
@@ -286,24 +328,27 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
           const baseName = path.basename(imgFile.originalName, ext).replace(/[^a-z0-9_-]/gi, '_');
           const newImageFilename = `episode-${episodeTimestamp}-${baseName}${ext}`;
           const imagePath = path.join(uploadsDir, newImageFilename);
+          const normalizedOriginalName = imgFile.originalName.replace(/\\/g, '/');
+          const originalBaseName = path.basename(normalizedOriginalName);
+          const publicPath = `/uploads/${newImageFilename}`;
           
           fs.writeFileSync(imagePath, imgFile.data);
           
-          // マッピング作成（JSON の相対パス → 実際のパス）
-          imageMap[path.basename(imgFile.originalName)] = `/uploads/${newImageFilename}`;
+          // マッピング作成（JSON の相対パス揺れを吸収）
+          imageMap[normalizedOriginalName] = publicPath;
+          imageMap[originalBaseName] = publicPath;
+          imageMap[`./${originalBaseName}`] = publicPath;
           
           console.log(`[Upload] Image extracted: ${newImageFilename}`);
         }
       }
 
-      // JSON がある場合、画像パスを更新
-      if (jsonConfig && Array.isArray(jsonConfig)) {
-        slideshowConfig = jsonConfig.map(slide => ({
-          ...slide,
-          // 相対パス（元のファイル名）を絶対パス（/uploads/...）に変換
-          image: imageMap[slide.image] || slide.image
-        }));
-        console.log(`[Upload] Slideshow config loaded with ${slideshowConfig.length} slides`);
+      // JSON がある場合、画像パスを更新（path/keyの揺れを吸収）
+      if (jsonConfig) {
+        slideshowConfig = normalizeSlideshowConfig(jsonConfig, imageMap);
+        if (slideshowConfig) {
+          console.log(`[Upload] Slideshow config loaded with ${slideshowConfig.length} slides`);
+        }
       }
 
       // ZIP は削除

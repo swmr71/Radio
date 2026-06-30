@@ -2,14 +2,48 @@ import React, { useState, useEffect } from 'react';
 import { Music } from 'lucide-react';
 
 export function SlideshowDisplay({ config, currentTime, duration }) {
+  const normalizeSlides = (rawConfig) => {
+    const rawSlides = Array.isArray(rawConfig)
+      ? rawConfig
+      : Array.isArray(rawConfig?.slides)
+      ? rawConfig.slides
+      : [];
+
+    const durationMs = Number.isFinite(duration) ? duration * 1000 : 0;
+
+    return rawSlides
+      .map((slide) => {
+        const image = slide.image ?? slide.imagePath ?? slide.src ?? slide.url;
+
+        const rawStart = Number(slide.start ?? slide.startMs ?? slide.startTime ?? 0);
+        const rawEnd = Number(slide.end ?? slide.endMs ?? slide.endTime ?? durationMs);
+
+        const start = Number.isFinite(rawStart) ? rawStart : 0;
+        const end = Number.isFinite(rawEnd) ? rawEnd : durationMs;
+
+        // durationが秒単位で与えられている設定を吸収
+        const likelySeconds = duration > 0 && Math.max(start, end) <= duration + 1;
+
+        return {
+          ...slide,
+          image,
+          start: likelySeconds ? start * 1000 : start,
+          end: likelySeconds ? end * 1000 : end,
+        };
+      })
+      .filter((slide) => typeof slide.image === 'string' && slide.image.length > 0);
+  };
+
+  const slides = normalizeSlides(config);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const currentTimeMs = currentTime * 1000;
 
   useEffect(() => {
-    if (!config || config.length === 0) return;
+    if (slides.length === 0) return;
 
     // currentTime に一致するスライドがあれば使い、なければ直近のスライドを使う
-    const imageIndex = config.findIndex(
-      (slide) => currentTime >= slide.start && currentTime < slide.end
+    const imageIndex = slides.findIndex(
+      (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
     );
 
     if (imageIndex !== -1) {
@@ -17,17 +51,23 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
       return;
     }
 
-    const fallbackIndex = config.reduce((latestIndex, slide, index) => {
-      if (currentTime >= slide.start) {
+    const fallbackIndex = slides.reduce((latestIndex, slide, index) => {
+      if (currentTimeMs >= slide.start) {
         return index;
       }
       return latestIndex;
     }, 0);
 
     setCurrentImageIndex(fallbackIndex);
-  }, [currentTime, config]);
+  }, [currentTimeMs, slides]);
 
-  if (!config || config.length === 0) {
+  useEffect(() => {
+    if (currentImageIndex > slides.length - 1) {
+      setCurrentImageIndex(0);
+    }
+  }, [slides, currentImageIndex]);
+
+  if (slides.length === 0) {
     return (
       <div style={styles.albumArt}>
         <Music size={64} />
@@ -35,7 +75,7 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
     );
   }
 
-  const currentImage = config[currentImageIndex];
+  const currentImage = slides[currentImageIndex];
 
   return (
     <div style={styles.slideshowContainer}>
@@ -45,7 +85,7 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
         style={styles.slideshowImage}
       />
       <div style={styles.slideshowIndicator}>
-        {currentImageIndex + 1} / {config.length}
+        {currentImageIndex + 1} / {slides.length}
       </div>
     </div>
   );
