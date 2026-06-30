@@ -7,14 +7,24 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
   useEffect(() => {
     if (!config || config.length === 0) return;
 
-    // currentTime に該当する画像インデックスを算出
+    // currentTime に一致するスライドがあれば使い、なければ直近のスライドを使う
     const imageIndex = config.findIndex(
       (slide) => currentTime >= slide.start && currentTime < slide.end
     );
 
     if (imageIndex !== -1) {
       setCurrentImageIndex(imageIndex);
+      return;
     }
+
+    const fallbackIndex = config.reduce((latestIndex, slide, index) => {
+      if (currentTime >= slide.start) {
+        return index;
+      }
+      return latestIndex;
+    }, 0);
+
+    setCurrentImageIndex(fallbackIndex);
   }, [currentTime, config]);
 
   if (!config || config.length === 0) {
@@ -40,6 +50,8 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
     </div>
   );
 }
+
+export default SlideshowDisplay;
 
 const styles = {
   albumArt: {

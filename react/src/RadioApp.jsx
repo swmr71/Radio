@@ -18,6 +18,7 @@ import {
   ListPlus,
   MessageSquare, // 追加
 } from 'lucide-react';
+import { SlideshowDisplay } from './SlideshowDisplay';
 
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
@@ -931,9 +932,11 @@ export default function RadioApp() {
             <div className="player-layout">
               {/* 左パネル: プレイヤーコントロール */}
               <div className="player-left-panel" style={styles.expandedPlayerContent}>
-                <div style={styles.albumArt}>
-                  <Music size={96} style={{ color: '#4f46e5' }} />
-                </div>
+                <SlideshowDisplay
+                  config={currentEpisode.slideshowConfig}
+                  currentTime={currentTime}
+                  duration={duration}
+                />
 
                 <h2 style={styles.expandedPlayerTitle}>{currentEpisode.title}</h2>
                 {currentEpisode.description && <p style={styles.expandedPlayerDesc}>{currentEpisode.description}</p>}
