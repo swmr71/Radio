@@ -397,14 +397,17 @@ app.get('/audio/:filename', (req, res) => {
 
 // GET /api/episodes - すべてのエピソード取得
 app.get('/api/episodes', (req, res) => {
+  // 💡 クエリに「transcript」を追加
   db.all(
-    'SELECT id, title, description, filename, uploadedAt, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
+    'SELECT id, title, description, filename, uploadedAt, transcript, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
     (err, rows) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
       const parsedRows = rows.map(row => ({
         ...row,
+        // 💡 文字起こしデータもJSONとしてパースする
+        transcript: row.transcript ? JSON.parse(row.transcript) : [],
         slideshowConfig: row.slideshowConfig ? JSON.parse(row.slideshowConfig) : null
       }));
       res.json(parsedRows);
