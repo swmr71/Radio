@@ -689,13 +689,12 @@ export default function RadioApp() {
 
       {/* サイドバー */}
       <aside className="responsive-sidebar" style={styles.sidebar}>
-        {/* ロゴとUserMenuの配置 */}
+        {/* ロゴの配置 */}
         <div style={styles.sidebarHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Music size={24} style={{ color: '#4f46e5' }} />
             <h1 style={styles.sidebarTitle}>RBS</h1>
           </div>
-          <UserMenu />
         </div>
 
         <nav style={styles.sidebarNav}>
@@ -793,6 +792,9 @@ export default function RadioApp() {
 
       {/* メインコンテンツ */}
       <main className="responsive-main" style={styles.mainContent}>
+        <div style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 100, display: playerExpanded ? 'none' : 'flex', alignItems: 'center', gap: '1rem' }}>
+          <UserMenu />
+        </div>
         <button onClick={() => setSidebarOpen(!sidebarOpen)} className="responsive-hamburger" style={styles.hamburgerBtn}>
           <Menu size={24} />
         </button>
