@@ -5,6 +5,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { AssemblyAI } from 'assemblyai';
+import { GoogleGenAI } from '@google/genai'; // 💡 Google Gen AI SDKを追加
 import AdmZip from 'adm-zip';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
@@ -37,6 +38,13 @@ if (!aaiApiKey) {
   console.warn('⚠️ WARNING: ASSEMBLYAI_API_KEY is not set. Transcription will be skipped.');
 }
 const aaiClient = aaiApiKey ? new AssemblyAI({ apiKey: aaiApiKey }) : null;
+
+// 💡 Google AI Studio (Gemini API / Gemma 4) 初期化
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (!geminiApiKey) {
+  console.warn('⚠️ WARNING: GEMINI_API_KEY is not set. Gemma text refinement will be skipped.');
+}
+const geminiClient = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 
 // ディレクトリ設定
 const dataDir = path.resolve(__dirname, '../../data');
@@ -149,25 +157,21 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
       // ロール判定
       let role = 'viewer';
 
-      // 💡 ワイルドカード（*）を判定するための関数
+      // ワイルドカード（*）を判定するための関数
       const matchWildcard = (text, pattern) => {
-        // * 以外の特殊文字をエスケープし、* を正規表現の「.*（任意の文字列）」に変換
         const regexStr = '^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
-        return new RegExp(regexStr, 'i').test(text); // 'i' をつけて大文字小文字を区別しない
+        return new RegExp(regexStr, 'i').test(text);
       };
 
-      // .includes の代わりに .some() を使ってワイルドカード対応の判定をする
       const isAdmin = ALLOWED_ADMIN_EMAILS.some(pattern => matchWildcard(email, pattern));
       const isViewer = ALLOWED_VIEWER_EMAILS.some(pattern => matchWildcard(email, pattern));
 
       if (isAdmin) {
         role = 'admin';
       } else if (!isViewer && ALLOWED_VIEWER_EMAILS.length > 0) {
-        // viewer リストが設定されている場合、ホワイトリスト外は拒否
         return done(null, false, { message: 'Email not allowed' });
       }
 
-      // ユーザーを DB に保存または更新
       db.run(
         'INSERT OR REPLACE INTO users (googleId, email, displayName, role) VALUES (?, ?, ?, ?)',
         [googleId, email, displayName, role],
@@ -213,7 +217,7 @@ const isAdmin = (req, res, next) => {
 
 // ============ 利用時間制限ミドルウェア ============
 const checkTimeRestriction = (req, res, next) => {
-  const timeRange = process.env.ALLOWED_TIME_RANGE; // 例: "16:30-3:30"
+  const timeRange = process.env.ALLOWED_TIME_RANGE; 
   const restrictionMessage = process.env.RESTRICTED_MESSAGE || '現在はシステム利用時間外です。';
 
   if (!timeRange) {
@@ -224,7 +228,6 @@ const checkTimeRestriction = (req, res, next) => {
     return next();
   }
 
-  // タイムゾーンを 'Asia/Tokyo' に明示的に指定して現在の時・分を取得
   const now = new Date();
   const jstFormatter = new Intl.DateTimeFormat('ja-JP', {
     timeZone: 'Asia/Tokyo',
@@ -239,7 +242,6 @@ const checkTimeRestriction = (req, res, next) => {
 
   const currentMinutes = hour * 60 + minute;
 
-  // 時間設定をパース
   const [startStr, endStr] = timeRange.split('-');
   const [startH, startM] = startStr.split(':').map(Number);
   const [endH, endM] = endStr.split(':').map(Number);
@@ -250,12 +252,10 @@ const checkTimeRestriction = (req, res, next) => {
   let isAllowed = false;
 
   if (startMinutes <= endMinutes) {
-    // パターンA: 同日内 (例: 5:00 - 7:00)
     if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
       isAllowed = true;
     }
   } else {
-    // パターンB: 日またぎ (例: 16:30 - 3:30)
     if (currentMinutes >= startMinutes || currentMinutes <= endMinutes) {
       isAllowed = true;
     }
@@ -271,7 +271,6 @@ const checkTimeRestriction = (req, res, next) => {
   next();
 };
 
-// Express ミドルウェア設定の直後、API定義の前に差し込む
 app.use(checkTimeRestriction);
 
 // ============ 認証エンドポイント ============
@@ -325,13 +324,61 @@ async function startTranscription(episodeId, filepath) {
       language_code: 'ja',
     });
 
-    // 💡 u.text の空白を正規表現で削除するように修正
+    // 💡 u.text の空白を正規表現で削除
     const utterances = transcript.utterances?.map(u => ({
       speaker: u.speaker,
       text: u.text ? u.text.replace(/\s+/g, '') : '',
       start: u.start,
       end: u.end
     })) || [];
+
+    // 💡 【新規実装】Gemma 4 26B による文章の整形・誤字修正処理
+    if (geminiClient && utterances.length > 0) {
+      console.log(`[Transcript] Refining text with Gemma 4 26B for episode ID: ${episodeId}`);
+      
+          const chunkSize = 30; // API制限や途切れ対策のため30件ずつバッチ処理
+          for (let i = 0; i < utterances.length; i += chunkSize) {
+            const chunk = utterances.slice(i, i + chunkSize);
+            const inputData = chunk.map((u, index) => ({ id: i + index, text: u.text }));
+
+            try {
+              const response = await geminiClient.models.generateContent({
+                model: 'gemma-4-26b-a4b-it',
+                config: {
+                  responseMimeType: 'application/json',
+                },
+                contents: `以下のJSON配列に含まれる各オブジェクトの "text" について、誤字・脱字を修正し、必要に応じて適切な句読点や改行を追加してください。
+・JSONの配列構造、オブジェクトの配列長、"id" は絶対に変更しないでください。
+・"text" の中身だけを綺麗に修正してください。
+・解説文などは一切含めず、有効なJSONのみを出力してください。
+
+${JSON.stringify(inputData)}`,
+              });
+
+              if (response.text) {
+                let jsonStr = response.text.trim();
+                // マークダウンのコードブロックを念のため除去
+                if (jsonStr.startsWith('```json')) {
+                  jsonStr = jsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
+                } else if (jsonStr.startsWith('```')) {
+                  jsonStr = jsonStr.replace(/^```/, '').replace(/```$/, '').trim();
+                }
+
+                const refinedChunk = JSON.parse(jsonStr);
+                if (Array.isArray(refinedChunk)) {
+                  refinedChunk.forEach((item) => {
+                    if (item && typeof item.id === 'number' && utterances[item.id]) {
+                      utterances[item.id].text = item.text || '';
+                    }
+                  });
+                }
+              }
+            } catch (geminiError) {
+              console.error(`[Transcript] Gemma refinement failed for chunk ${i}-${i + chunkSize}:`, geminiError.message);
+              // エラーが発生したチャンクは、AssemblyAIが生成した元のテキスト（空白除去済み）のまま維持
+            }
+          }
+    }
 
     db.run(
       'UPDATE episodes SET transcript = ?, transcriptStatus = ? WHERE id = ?',
@@ -396,9 +443,7 @@ app.get('/audio/:filename', (req, res) => {
 
 // ============ API Endpoints ============
 
-// GET /api/episodes - すべてのエピソード取得
 app.get('/api/episodes', (req, res) => {
-  // 💡 クエリに「transcript」を追加
   db.all(
     'SELECT id, title, description, filename, uploadedAt, transcript, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
     (err, rows) => {
@@ -407,7 +452,6 @@ app.get('/api/episodes', (req, res) => {
       }
       const parsedRows = rows.map(row => ({
         ...row,
-        // 💡 文字起こしデータもJSONとしてパースする
         transcript: row.transcript ? JSON.parse(row.transcript) : [],
         slideshowConfig: row.slideshowConfig ? JSON.parse(row.slideshowConfig) : null
       }));
@@ -416,7 +460,6 @@ app.get('/api/episodes', (req, res) => {
   );
 });
 
-// POST /api/upload - エピソードアップロード（管理者のみ）
 app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
@@ -478,7 +521,6 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
       }
 
       fs.unlinkSync(uploadedFilePath);
-
       console.log(`[Upload] ZIP extracted: ${audioFilename}`);
     }
 
@@ -519,7 +561,6 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   }
 });
 
-// DELETE /api/episodes/:id - エピソード削除（管理者のみ）
 app.delete('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
 
@@ -549,7 +590,6 @@ app.delete('/api/episodes/:id', isAdmin, (req, res) => {
   });
 });
 
-// GET /api/episodes/:id - 特定エピソード取得
 app.get('/api/episodes/:id', (req, res) => {
   const { id } = req.params;
 
@@ -585,7 +625,6 @@ app.get('/api/episodes/:id', (req, res) => {
   );
 });
 
-// PATCH /api/episodes/:id - エピソード情報更新（管理者のみ）
 app.patch('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
   const { title, description } = req.body;
@@ -606,7 +645,6 @@ app.patch('/api/episodes/:id', isAdmin, (req, res) => {
   );
 });
 
-// PUT /api/episodes/:id/transcript - 文字起こし編集（管理者のみ）
 app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
   const { id } = req.params;
   const { transcript } = req.body;
@@ -627,7 +665,6 @@ app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
   );
 });
 
-// POST /api/episodes/:id/slideshow - スライドショー設定更新（管理者のみ）
 app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
   const { id } = req.params;
   const { slideshowConfig } = req.body;
