@@ -15,7 +15,7 @@ export function LoginPage() {
         </div>
         
         <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
-          超かぐや姫 ラジオ
+          RBS ラジオ
         </h1>
         <p className="text-center text-gray-600 mb-8">
           Google アカウントでログインして楽しむ
