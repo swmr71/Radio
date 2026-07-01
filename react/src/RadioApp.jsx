@@ -110,6 +110,27 @@ export default function RadioApp() {
       }
     }
   }, [currentTime, playerExpanded, currentEpisode]);
+  
+  // アプリを開きっぱなしにしている場合のための、定期的な時間制限チェック
+  useEffect(() => {
+    const checkTimeRestrictionLoop = async () => {
+      try {
+        const res = await fetch('/api/episodes');
+        if (res.status === 403) {
+          const data = await res.json();
+          if (data.isTimeRestricted) {
+            setTimeRestrictedMessage(data.error);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check time restriction:', error);
+      }
+    };
+
+    // 1分（60000ms）ごとにバックエンドに確認
+    const interval = setInterval(checkTimeRestrictionLoop, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchEpisodes = async () => {
     try {

@@ -211,21 +211,31 @@ const isAdmin = (req, res, next) => {
 
 // ============ 利用時間制限ミドルウェア ============
 const checkTimeRestriction = (req, res, next) => {
-  const timeRange = process.env.ALLOWED_TIME_RANGE; // 例: "16:30-3:30" や "5:00-7:00"
+  const timeRange = process.env.ALLOWED_TIME_RANGE; // 例: "16:30-3:30"
   const restrictionMessage = process.env.RESTRICTED_MESSAGE || '現在はシステム利用時間外です。';
 
-  // 環境変数が設定されていない場合は制限なし
   if (!timeRange) {
     return next();
   }
 
-  // APIリクエストと音声ストリーミング（/api と /audio）のみを制限対象にする
   if (!req.path.startsWith('/api') && !req.path.startsWith('/audio')) {
     return next();
   }
 
+  // タイムゾーンを 'Asia/Tokyo' に明示的に指定して現在の時・分を取得
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const jstFormatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false
+  });
+  
+  const parts = jstFormatter.formatToParts(now);
+  const hour = Number(parts.find(p => p.type === 'hour').value);
+  const minute = Number(parts.find(p => p.type === 'minute').value);
+
+  const currentMinutes = hour * 60 + minute;
 
   // 時間設定をパース
   const [startStr, endStr] = timeRange.split('-');
@@ -249,7 +259,6 @@ const checkTimeRestriction = (req, res, next) => {
     }
   }
 
-  // 許可時間外の場合は403エラーとメッセージを返す
   if (!isAllowed) {
     return res.status(403).json({ 
       error: restrictionMessage, 
