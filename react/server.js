@@ -311,6 +311,7 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // ============ バックグラウンド文字起こし関数 ============
+// ============ バックグラウンド文字起こし関数 ============
 async function startTranscription(episodeId, filepath) {
   if (!aaiClient) return;
 
@@ -324,7 +325,7 @@ async function startTranscription(episodeId, filepath) {
       language_code: 'ja',
     });
 
-    // 💡 u.text の空白を正規表現で削除
+    // u.text の空白を正規表現で削除
     const utterances = transcript.utterances?.map(u => ({
       speaker: u.speaker,
       text: u.text ? u.text.replace(/\s+/g, '') : '',
@@ -332,52 +333,58 @@ async function startTranscription(episodeId, filepath) {
       end: u.end
     })) || [];
 
-    // 💡 【新規実装】Gemma 4 26B による文章の整形・誤字修正処理
+    // Gemma 4 26B による文章の整形・誤字修正処理
     if (geminiClient && utterances.length > 0) {
-      console.log(`[Transcript] Refining text with Gemma 4 26B for episode ID: ${episodeId}`);
+      console.log(`[Transcript] Total utterances found: ${utterances.length}. Starting Gemma 4 26B refinement...`);
       
-          const chunkSize = 30; // API制限や途切れ対策のため30件ずつバッチ処理
-          for (let i = 0; i < utterances.length; i += chunkSize) {
-            const chunk = utterances.slice(i, i + chunkSize);
-            const inputData = chunk.map((u, index) => ({ id: i + index, text: u.text }));
+      const chunkSize = 30; // API制限や途切れ対策のため30件ずつバッチ処理
+      const totalChunks = Math.ceil(utterances.length / chunkSize);
 
-            try {
-              const response = await geminiClient.models.generateContent({
-                model: 'gemma-4-26b-a4b-it',
-                config: {
-                  responseMimeType: 'application/json',
-                },
-                contents: `以下のJSON配列に含まれる各オブジェクトの "text" について、誤字・脱字を修正し、必要に応じて適切な句読点や改行を追加してください。
+      for (let i = 0; i < utterances.length; i += chunkSize) {
+        const currentChunkNum = Math.floor(i / chunkSize) + 1;
+        // 💡 進捗がわかるようにログを追加
+        console.log(`[Transcript] 🤖 Gemma Refinement: Processing chunk ${currentChunkNum} / ${totalChunks}...`);
+
+        const chunk = utterances.slice(i, i + chunkSize);
+        const inputData = chunk.map((u, index) => ({ id: i + index, text: u.text }));
+
+        try {
+          const response = await geminiClient.models.generateContent({
+            model: 'gemma-4-26b-a4b-it',
+            config: {
+              responseMimeType: 'application/json',
+            },
+            contents: `以下のJSON配列に含まれる各オブジェクトの "text" について、誤字・脱字を修正し、必要に応じて適切な句読点や改行を追加してください。
 ・JSONの配列構造、オブジェクトの配列長、"id" は絶対に変更しないでください。
 ・"text" の中身だけを綺麗に修正してください。
 ・解説文などは一切含めず、有効なJSONのみを出力してください。
 
 ${JSON.stringify(inputData)}`,
+          });
+
+          if (response.text) {
+            let jsonStr = response.text.trim();
+            if (jsonStr.startsWith('```json')) {
+              jsonStr = jsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
+            } else if (jsonStr.startsWith('```')) {
+              jsonStr = jsonStr.replace(/^```/, '').replace(/```$/, '').trim();
+            }
+
+            const refinedChunk = JSON.parse(jsonStr);
+            if (Array.isArray(refinedChunk)) {
+              refinedChunk.forEach((item) => {
+                if (item && typeof item.id === 'number' && utterances[item.id]) {
+                  utterances[item.id].text = item.text || '';
+                }
               });
-
-              if (response.text) {
-                let jsonStr = response.text.trim();
-                // マークダウンのコードブロックを念のため除去
-                if (jsonStr.startsWith('```json')) {
-                  jsonStr = jsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
-                } else if (jsonStr.startsWith('```')) {
-                  jsonStr = jsonStr.replace(/^```/, '').replace(/```$/, '').trim();
-                }
-
-                const refinedChunk = JSON.parse(jsonStr);
-                if (Array.isArray(refinedChunk)) {
-                  refinedChunk.forEach((item) => {
-                    if (item && typeof item.id === 'number' && utterances[item.id]) {
-                      utterances[item.id].text = item.text || '';
-                    }
-                  });
-                }
-              }
-            } catch (geminiError) {
-              console.error(`[Transcript] Gemma refinement failed for chunk ${i}-${i + chunkSize}:`, geminiError.message);
-              // エラーが発生したチャンクは、AssemblyAIが生成した元のテキスト（空白除去済み）のまま維持
             }
           }
+          console.log(`[Transcript] ✅ Chunk ${currentChunkNum} / ${totalChunks} completed.`);
+        } catch (geminiError) {
+          console.error(`[Transcript] ❌ Gemma refinement failed for chunk ${currentChunkNum}:`, geminiError.message);
+          // エラーが出ても止まらないように元のテキストを維持して次へ
+        }
+      }
     }
 
     db.run(
@@ -385,12 +392,12 @@ ${JSON.stringify(inputData)}`,
       [JSON.stringify(utterances), 'completed', episodeId],
       (err) => {
         if (err) console.error('[Transcript] DB Update Error:', err.message);
-        else console.log(`[Transcript] Successfully completed for episode ID: ${episodeId}`);
+        else console.log(`[Transcript] ✨ Successfully completed for episode ID: ${episodeId}`);
       }
     );
 
   } catch (error) {
-    console.error(`[Transcript] Error on episode ID ${episodeId}:`, error.message);
+    console.error(`[Transcript] ❌ Global Error on episode ID ${episodeId}:`, error.message);
     db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['failed', episodeId]);
   }
 }
