@@ -1,23 +1,57 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Music } from 'lucide-react';
 
 export function SlideshowDisplay({ config, currentTime, duration }) {
-  const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  // durationMsをコンポーネント全体で使えるように外側で定義
+  const durationMs = Number.isFinite(duration) ? duration * 1000 : 0;
 
-  useEffect(() => {
-    if (!config || config.length === 0) return;
+  const normalizeSlides = (rawConfig) => {
+    const rawSlides = Array.isArray(rawConfig)
+      ? rawConfig
+      : Array.isArray(rawConfig?.slides)
+      ? rawConfig.slides
+      : rawConfig && typeof rawConfig === 'object'
+      ? [rawConfig]
+      : [];
 
-    // currentTime に該当する画像インデックスを算出
-    const imageIndex = config.findIndex(
-      (slide) => currentTime >= slide.start && currentTime < slide.end
-    );
+    return rawSlides
+      .map((slide) => {
+        const image = slide.image ?? slide.imagePath ?? slide.src ?? slide.url;
 
-    if (imageIndex !== -1) {
-      setCurrentImageIndex(imageIndex);
-    }
-  }, [currentTime, config]);
+        const rawStart = Number(slide.start ?? slide.startMs ?? slide.startTime ?? 0);
+        const rawEnd = Number(slide.end ?? slide.endMs ?? slide.endTime ?? durationMs);
 
-  if (!config || config.length === 0) {
+        const start = Number.isFinite(rawStart) ? rawStart : 0;
+        const end = Number.isFinite(rawEnd) ? rawEnd : durationMs;
+
+        // durationが秒単位で与えられている設定を吸収
+        const likelySeconds = duration > 0 && Math.max(start, end) <= duration + 1;
+
+        return {
+          ...slide,
+          image,
+          start: likelySeconds ? start * 1000 : start,
+          end: likelySeconds ? end * 1000 : end,
+        };
+      })
+      .filter((slide) => typeof slide.image === 'string' && slide.image.length > 0);
+  };
+
+  const slides = normalizeSlides(config);
+  const currentTimeMs = currentTime * 1000;
+
+  // 再生終了しているかどうかの判定
+  const isEnded = durationMs > 0 && currentTimeMs >= durationMs;
+
+  // 現在時刻がスライドの表示期間（start <= currentTime < end）に合致するインデックスを探す
+  const currentImageIndex = isEnded
+    ? -1
+    : slides.findIndex(
+        (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
+      );
+
+  // 該当するスライドがない、または再生終了後はアイコン（非表示状態）を表示
+  if (slides.length === 0 || currentImageIndex === -1) {
     return (
       <div style={styles.albumArt}>
         <Music size={64} />
@@ -25,7 +59,7 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
     );
   }
 
-  const currentImage = config[currentImageIndex];
+  const currentImage = slides[currentImageIndex];
 
   return (
     <div style={styles.slideshowContainer}>
@@ -35,11 +69,13 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
         style={styles.slideshowImage}
       />
       <div style={styles.slideshowIndicator}>
-        {currentImageIndex + 1} / {config.length}
+        {currentImageIndex + 1} / {slides.length}
       </div>
     </div>
   );
 }
+
+export default SlideshowDisplay;
 
 const styles = {
   albumArt: {
