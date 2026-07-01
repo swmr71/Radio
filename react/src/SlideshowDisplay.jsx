@@ -38,11 +38,26 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
 
   const slides = normalizeSlides(config);
   const currentTimeMs = currentTime * 1000;
+
+  // 現在時刻に一致するスライドがなければ、直前のスライドを使う。
+  // ただし再生終了後は必ずアイコンに戻す。
   const currentImageIndex = slides.findIndex(
     (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
   );
 
-  if (slides.length === 0 || currentImageIndex === -1) {
+  const fallbackIndex = slides.reduce((latestIndex, slide, index) => {
+    if (currentTimeMs >= slide.start) {
+      return index;
+    }
+    return latestIndex;
+  }, -1);
+
+  const shouldShowFallbackImage =
+    currentImageIndex !== -1 &&
+    fallbackIndex !== -1 &&
+    currentTimeMs < (durationMs || Number.POSITIVE_INFINITY);
+
+  if (slides.length === 0 || (!shouldShowFallbackImage && currentTimeMs >= durationMs && durationMs > 0)) {
     return (
       <div style={styles.albumArt}>
         <Music size={64} />
@@ -50,17 +65,27 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
     );
   }
 
-  const currentImage = slides[currentImageIndex];
+  const imageIndex = currentImageIndex !== -1 ? currentImageIndex : fallbackIndex;
+
+  if (imageIndex === -1) {
+    return (
+      <div style={styles.albumArt}>
+        <Music size={64} />
+      </div>
+    );
+  }
+
+  const currentImage = slides[imageIndex];
 
   return (
     <div style={styles.slideshowContainer}>
       <img
         src={currentImage.image}
-        alt={`Slide ${currentImageIndex + 1}`}
+        alt={`Slide ${imageIndex + 1}`}
         style={styles.slideshowImage}
       />
       <div style={styles.slideshowIndicator}>
-        {currentImageIndex + 1} / {slides.length}
+        {imageIndex + 1} / {slides.length}
       </div>
     </div>
   );
