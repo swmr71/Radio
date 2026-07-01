@@ -39,9 +39,9 @@ if (!aaiApiKey) {
 const aaiClient = aaiApiKey ? new AssemblyAI({ apiKey: aaiApiKey }) : null;
 
 // ディレクトリ設定
-const audioDir = path.join(__dirname, 'audio');
-const uploadsDir = path.join(__dirname, 'uploads');
-const dbPath = path.join(__dirname, 'episodes.db');
+const audioDir = path.join(__dirname, '../audio');
+const uploadsDir = path.join(__dirname, '../uploads');
+const dbPath = path.join(__dirname, '../episodes.db');
 
 if (!fs.existsSync(audioDir)) {
   fs.mkdirSync(audioDir, { recursive: true });
