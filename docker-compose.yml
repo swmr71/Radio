@@ -12,3 +12,4 @@ services:
     restart: always
     environment:
       - NODE_ENV=production
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
