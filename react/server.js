@@ -146,9 +146,21 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
 
       // ロール判定
       let role = 'viewer';
-      if (ALLOWED_ADMIN_EMAILS.includes(email)) {
+
+      // 💡 ワイルドカード（*）を判定するための関数
+      const matchWildcard = (text, pattern) => {
+        // * 以外の特殊文字をエスケープし、* を正規表現の「.*（任意の文字列）」に変換
+        const regexStr = '^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$';
+        return new RegExp(regexStr, 'i').test(text); // 'i' をつけて大文字小文字を区別しない
+      };
+
+      // .includes の代わりに .some() を使ってワイルドカード対応の判定をする
+      const isAdmin = ALLOWED_ADMIN_EMAILS.some(pattern => matchWildcard(email, pattern));
+      const isViewer = ALLOWED_VIEWER_EMAILS.some(pattern => matchWildcard(email, pattern));
+
+      if (isAdmin) {
         role = 'admin';
-      } else if (!ALLOWED_VIEWER_EMAILS.includes(email) && ALLOWED_VIEWER_EMAILS.length > 0) {
+      } else if (!isViewer && ALLOWED_VIEWER_EMAILS.length > 0) {
         // viewer リストが設定されている場合、ホワイトリスト外は拒否
         return done(null, false, { message: 'Email not allowed' });
       }
