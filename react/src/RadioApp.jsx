@@ -923,7 +923,15 @@ export default function RadioApp() {
                         ref={fileInputRef}
                         type="file"
                         accept=".mp3,audio/mpeg,.zip,application/zip"
-                        onChange={(e) => setUploadFile(e.target.files[0])}
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            setUploadFile(file);
+                            // ファイル名から最後のドット以降（拡張子）を取り除く
+                            const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+                            setEpisodeTitle(titleWithoutExt);
+                          }
+                        }}
                         style={styles.fileInput}
                       />
                       <span style={styles.fileInputPlaceholder}>
