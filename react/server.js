@@ -4,14 +4,31 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { AssemblyAI } from 'assemblyai'; // 追加
-import AdmZip from 'adm-zip'; // ZIP 解凍用
+import { AssemblyAI } from 'assemblyai';
+import AdmZip from 'adm-zip';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import session from 'express-session';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = 3001;
 
-// AssemblyAIの初期化
+// ============ 認証設定 ============
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-this';
+const ALLOWED_ADMIN_EMAILS = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').filter(Boolean);
+const ALLOWED_VIEWER_EMAILS = (process.env.ALLOWED_VIEWER_EMAILS || '').split(',').filter(Boolean);
+
+if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+  console.warn('⚠️ WARNING: Google OAuth credentials not set. Authentication will be disabled.');
+}
+
+// AssemblyAI初期化
 const aaiApiKey = process.env.ASSEMBLYAI_API_KEY;
 if (!aaiApiKey) {
   console.warn('⚠️ WARNING: ASSEMBLYAI_API_KEY is not set. Transcription will be skipped.');
@@ -23,17 +40,15 @@ const audioDir = path.join(__dirname, 'audio');
 const uploadsDir = path.join(__dirname, 'uploads');
 const dbPath = path.join(__dirname, 'episodes.db');
 
-// audioディレクトリが存在しない場合は作成
 if (!fs.existsSync(audioDir)) {
   fs.mkdirSync(audioDir, { recursive: true });
 }
 
-// uploadsディレクトリが存在しない場合は作成
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// multer設定（ZIP と音声ファイル両対応）
+// multer 設定
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, audioDir);
@@ -49,7 +64,6 @@ const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
     const mimetype = file.mimetype;
-    // 音声ファイルまたは ZIP を許可
     if (mimetype.startsWith('audio/') || mimetype === 'application/zip' || mimetype === 'application/x-zip-compressed') {
       cb(null, true);
     } else {
@@ -57,14 +71,13 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 500 * 1024 * 1024, // 500MB
+    fileSize: 500 * 1024 * 1024,
   },
 });
 
-// SQLite3設定
+// SQLite3 設定
 const db = new sqlite3.Database(dbPath);
 
-// カラム追加（transcript, transcript_status, slideshow_config）
 db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS episodes (
@@ -79,37 +92,165 @@ db.serialize(() => {
       slideshowConfig TEXT
     )
   `);
+
+  // ユーザー情報テーブル
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      googleId TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      displayName TEXT,
+      role TEXT CHECK(role IN ('admin', 'viewer')) DEFAULT 'viewer',
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 });
 
-// ミドルウェア
+// ============ Express ミドルウェア設定 ============
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(uploadsDir));
+
+// Session 設定
+app.use(session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: true,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24時間
+  }
+}));
+
+// Passport 初期化
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Google OAuth Strategy
+if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+  passport.use(new GoogleStrategy(
+    {
+      clientID: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+      callbackURL: '/auth/google/callback',
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      const email = profile.emails[0].value;
+      const displayName = profile.displayName;
+      const googleId = profile.id;
+
+      // ロール判定
+      let role = 'viewer';
+      if (ALLOWED_ADMIN_EMAILS.includes(email)) {
+        role = 'admin';
+      } else if (!ALLOWED_VIEWER_EMAILS.includes(email) && ALLOWED_VIEWER_EMAILS.length > 0) {
+        // viewer リストが設定されている場合、ホワイトリスト外は拒否
+        return done(null, false, { message: 'Email not allowed' });
+      }
+
+      // ユーザーを DB に保存または更新
+      db.run(
+        'INSERT OR REPLACE INTO users (googleId, email, displayName, role) VALUES (?, ?, ?, ?)',
+        [googleId, email, displayName, role],
+        function(err) {
+          if (err) {
+            return done(err);
+          }
+          const user = { googleId, email, displayName, role };
+          done(null, user);
+        }
+      );
+    }
+  ));
+
+  passport.serializeUser((user, done) => {
+    done(null, user.googleId);
+  });
+
+  passport.deserializeUser((googleId, done) => {
+    db.get('SELECT * FROM users WHERE googleId = ?', [googleId], (err, user) => {
+      if (err) return done(err);
+      done(null, user);
+    });
+  });
+}
+
+// ============ 認証ミドルウェア ============
+const isAuthenticated = (req, res, next) => {
+  if (req.isAuthenticated()) {
+    next();
+  } else {
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+};
+
+const isAdmin = (req, res, next) => {
+  if (req.isAuthenticated() && req.user.role === 'admin') {
+    next();
+  } else {
+    res.status(403).json({ error: 'Forbidden: Admin role required' });
+  }
+};
+
+// ============ 認証エンドポイント ============
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => {
+    res.redirect('/');
+  }
+);
+
+app.get('/auth/user', (req, res) => {
+  if (req.isAuthenticated()) {
+    res.json({
+      authenticated: true,
+      user: {
+        googleId: req.user.googleId,
+        email: req.user.email,
+        displayName: req.user.displayName,
+        role: req.user.role,
+      },
+    });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
+
+app.get('/auth/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.redirect('/');
+  });
+});
 
 // ============ バックグラウンド文字起こし関数 ============
 async function startTranscription(episodeId, filepath) {
   if (!aaiClient) return;
 
-  // ステータスを「処理中」に更新
   db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['processing', episodeId]);
   console.log(`[Transcript] Started processing for episode ID: ${episodeId}`);
 
   try {
     const transcript = await aaiClient.transcripts.transcribe({
       audio: filepath,
-      speaker_labels: true, // 話者分離を有効化
-      language_code: 'ja',  // 日本語に指定
+      speaker_labels: true,
+      language_code: 'ja',
     });
 
-    // フロントエンドで扱いやすいように話者データを整形
     const utterances = transcript.utterances?.map(u => ({
       speaker: u.speaker,
       text: u.text,
-      start: u.start, // ミリ秒
-      end: u.end      // ミリ秒
+      start: u.start,
+      end: u.end
     })) || [];
 
-    // 結果をJSON文字列としてDBに保存
     db.run(
       'UPDATE episodes SET transcript = ?, transcriptStatus = ? WHERE id = ?',
       [JSON.stringify(utterances), 'completed', episodeId],
@@ -173,7 +314,7 @@ app.get('/audio/:filename', (req, res) => {
 
 // ============ API Endpoints ============
 
-// GET /api/episodes - すべてのエピソード取得（ステータスも返す）
+// GET /api/episodes - すべてのエピソード取得
 app.get('/api/episodes', (req, res) => {
   db.all(
     'SELECT id, title, description, filename, uploadedAt, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
@@ -181,7 +322,6 @@ app.get('/api/episodes', (req, res) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      // slideshowConfig を JSON にパース
       const parsedRows = rows.map(row => ({
         ...row,
         slideshowConfig: row.slideshowConfig ? JSON.parse(row.slideshowConfig) : null
@@ -191,59 +331,8 @@ app.get('/api/episodes', (req, res) => {
   );
 });
 
-// ============ ZIP 解凍＋MP3+画像+JSON抽出ユーティリティ ============
-function extractZipAndGetConfig(zipFilePath) {
-  try {
-    const zip = new AdmZip(zipFilePath);
-    const entries = zip.getEntries();
-
-    let mp3File = null;
-    let jsonConfig = null;
-    const imageFiles = []; // 画像ファイルのリスト
-
-    for (const entry of entries) {
-      const filename = entry.name.toLowerCase();
-      
-      // MP3 ファイル
-      if (filename.endsWith('.mp3') && !mp3File) {
-        mp3File = {
-          name: entry.name,
-          data: entry.getData()
-        };
-      }
-      // JSON 設定ファイル
-      else if (filename.endsWith('.json') && !jsonConfig) {
-        try {
-          jsonConfig = JSON.parse(entry.getData().toString('utf-8'));
-        } catch (e) {
-          console.warn('Failed to parse JSON from ZIP:', e.message);
-        }
-      }
-      // 画像ファイル
-      else if (
-        !entry.isDirectory &&
-        (filename.endsWith('.jpg') ||
-          filename.endsWith('.jpeg') ||
-          filename.endsWith('.png') ||
-          filename.endsWith('.gif') ||
-          filename.endsWith('.webp'))
-      ) {
-        imageFiles.push({
-          originalName: entry.name,
-          data: entry.getData()
-        });
-      }
-    }
-
-    return { mp3File, jsonConfig, imageFiles };
-  } catch (error) {
-    console.error('ZIP extraction error:', error.message);
-    throw error;
-  }
-}
-
-// POST /api/upload - 音声ファイル（単独）または ZIP（MP3+JSON+画像）アップロード
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+// POST /api/upload - エピソードアップロード（管理者のみ）
+app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
@@ -262,7 +351,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     let slideshowConfig = null;
     const episodeTimestamp = Date.now();
 
-    // ZIP ファイルの場合、MP3、JSON、画像を抽出
     if (isZip) {
       const { mp3File, jsonConfig, imageFiles } = extractZipAndGetConfig(uploadedFilePath);
 
@@ -271,48 +359,44 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         return res.status(400).json({ error: 'No MP3 file found in ZIP' });
       }
 
-      // MP3 ファイルをサーバーに保存
       audioFilename = `episode-${episodeTimestamp}.mp3`;
       const audioFilePath = path.join(audioDir, audioFilename);
       fs.writeFileSync(audioFilePath, mp3File.data);
 
-      // 画像ファイルを保存し、JSON パスを更新
-      const imageMap = {}; // 元のファイル名 → 新しいパスのマッピング
+      const imageMap = {};
       
       if (imageFiles.length > 0) {
         for (const imgFile of imageFiles) {
-          // ファイル名をサニタイズ（安全な名前に変換）
           const ext = path.extname(imgFile.originalName);
           const baseName = path.basename(imgFile.originalName, ext).replace(/[^a-z0-9_-]/gi, '_');
           const newImageFilename = `episode-${episodeTimestamp}-${baseName}${ext}`;
           const imagePath = path.join(uploadsDir, newImageFilename);
+          const normalizedOriginalName = imgFile.originalName.replace(/\\/g, '/');
+          const originalBaseName = path.basename(normalizedOriginalName);
+          const publicPath = `/uploads/${newImageFilename}`;
           
           fs.writeFileSync(imagePath, imgFile.data);
           
-          // マッピング作成（JSON の相対パス → 実際のパス）
-          imageMap[path.basename(imgFile.originalName)] = `/uploads/${newImageFilename}`;
+          imageMap[normalizedOriginalName] = publicPath;
+          imageMap[originalBaseName] = publicPath;
+          imageMap[`./${originalBaseName}`] = publicPath;
           
           console.log(`[Upload] Image extracted: ${newImageFilename}`);
         }
       }
 
-      // JSON がある場合、画像パスを更新
-      if (jsonConfig && Array.isArray(jsonConfig)) {
-        slideshowConfig = jsonConfig.map(slide => ({
-          ...slide,
-          // 相対パス（元のファイル名）を絶対パス（/uploads/...）に変換
-          image: imageMap[slide.image] || slide.image
-        }));
-        console.log(`[Upload] Slideshow config loaded with ${slideshowConfig.length} slides`);
+      if (jsonConfig) {
+        slideshowConfig = normalizeSlideshowConfig(jsonConfig, imageMap);
+        if (slideshowConfig) {
+          console.log(`[Upload] Slideshow config loaded with ${slideshowConfig.length} slides`);
+        }
       }
 
-      // ZIP は削除
       fs.unlinkSync(uploadedFilePath);
 
       console.log(`[Upload] ZIP extracted: ${audioFilename}`);
     }
 
-    // DB に挿入
     db.run(
       "INSERT INTO episodes (title, description, filename, transcriptStatus, slideshowConfig) VALUES (?, ?, ?, 'pending', ?)",
       [title, description || '', audioFilename, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
@@ -325,7 +409,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
           return res.status(500).json({ error: err.message });
         }
 
-        // クライアントには即座にレスポンスを返す
         res.json({
           id: this.lastID,
           title,
@@ -336,7 +419,6 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
           slideshowConfig: slideshowConfig || null
         });
 
-        // バックグラウンドで文字起こし処理を開始（非同期）
         if (aaiClient) {
           const audioFilePath = path.join(audioDir, audioFilename);
           startTranscription(this.lastID, audioFilePath);
@@ -352,8 +434,8 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
   }
 });
 
-// DELETE /api/episodes/:id - エピソード削除
-app.delete('/api/episodes/:id', (req, res) => {
+// DELETE /api/episodes/:id - エピソード削除（管理者のみ）
+app.delete('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
 
   db.get('SELECT filename FROM episodes WHERE id = ?', [id], (err, row) => {
@@ -382,7 +464,7 @@ app.delete('/api/episodes/:id', (req, res) => {
   });
 });
 
-// GET /api/episodes/:id - 特定エピソードの情報取得（文字起こし本文も含む）
+// GET /api/episodes/:id - 特定エピソード取得
 app.get('/api/episodes/:id', (req, res) => {
   const { id } = req.params;
 
@@ -397,7 +479,6 @@ app.get('/api/episodes/:id', (req, res) => {
         return res.status(404).json({ error: 'Episode not found' });
       }
 
-      // 保存されたJSON文字列をオブジェクトにパースして返す
       if (row.transcript) {
         try {
           row.transcript = JSON.parse(row.transcript);
@@ -406,7 +487,6 @@ app.get('/api/episodes/:id', (req, res) => {
         }
       }
 
-      // slideshowConfig もパース
       if (row.slideshowConfig) {
         try {
           row.slideshowConfig = JSON.parse(row.slideshowConfig);
@@ -419,6 +499,157 @@ app.get('/api/episodes/:id', (req, res) => {
     }
   );
 });
+
+// PATCH /api/episodes/:id - エピソード情報更新（管理者のみ）
+app.patch('/api/episodes/:id', isAdmin, (req, res) => {
+  const { id } = req.params;
+  const { title, description } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+
+  db.run(
+    'UPDATE episodes SET title = ?, description = ? WHERE id = ?',
+    [title, description || '', id],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ message: 'Episode updated' });
+    }
+  );
+});
+
+// PUT /api/episodes/:id/transcript - 文字起こし編集（管理者のみ）
+app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
+  const { id } = req.params;
+  const { transcript } = req.body;
+
+  if (!Array.isArray(transcript)) {
+    return res.status(400).json({ error: 'Transcript must be an array' });
+  }
+
+  db.run(
+    'UPDATE episodes SET transcript = ?, transcriptStatus = ? WHERE id = ?',
+    [JSON.stringify(transcript), 'completed', id],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ message: 'Transcript updated' });
+    }
+  );
+});
+
+// POST /api/episodes/:id/slideshow - スライドショー設定更新（管理者のみ）
+app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
+  const { id } = req.params;
+  const { slideshowConfig } = req.body;
+
+  db.run(
+    'UPDATE episodes SET slideshowConfig = ? WHERE id = ?',
+    [slideshowConfig ? JSON.stringify(slideshowConfig) : null, id],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ message: 'Slideshow config updated' });
+    }
+  );
+});
+
+// ============ ユーティリティ関数 ============
+function extractZipAndGetConfig(zipFilePath) {
+  try {
+    const zip = new AdmZip(zipFilePath);
+    const entries = zip.getEntries();
+
+    let mp3File = null;
+    let jsonConfig = null;
+    const imageFiles = [];
+
+    for (const entry of entries) {
+      const filename = entry.name.toLowerCase();
+      
+      if (filename.endsWith('.mp3') && !mp3File) {
+        mp3File = {
+          name: entry.name,
+          data: entry.getData()
+        };
+      }
+      else if (filename.endsWith('.json') && !jsonConfig) {
+        try {
+          jsonConfig = JSON.parse(entry.getData().toString('utf-8'));
+        } catch (e) {
+          console.warn('Failed to parse JSON from ZIP:', e.message);
+        }
+      }
+      else if (
+        !entry.isDirectory &&
+        (filename.endsWith('.jpg') ||
+          filename.endsWith('.jpeg') ||
+          filename.endsWith('.png') ||
+          filename.endsWith('.gif') ||
+          filename.endsWith('.webp'))
+      ) {
+        imageFiles.push({
+          originalName: entry.name,
+          data: entry.getData()
+        });
+      }
+    }
+
+    return { mp3File, jsonConfig, imageFiles };
+  } catch (error) {
+    console.error('ZIP extraction error:', error.message);
+    throw error;
+  }
+}
+
+function normalizeSlideshowConfig(rawConfig, imageMap) {
+  const slides = Array.isArray(rawConfig)
+    ? rawConfig
+    : Array.isArray(rawConfig?.slides)
+    ? rawConfig.slides
+    : rawConfig && typeof rawConfig === 'object'
+    ? [rawConfig]
+    : null;
+
+  if (!slides) return null;
+
+  const imageMapEntries = Object.entries(imageMap);
+
+  const resolveImagePath = (imageRef) => {
+    if (typeof imageRef !== 'string' || !imageRef.trim()) {
+      return null;
+    }
+
+    const normalized = imageRef.replace(/\\/g, '/').trim();
+    const baseName = path.basename(normalized);
+    const candidates = [normalized, baseName, `./${baseName}`];
+
+    for (const key of candidates) {
+      if (imageMap[key]) {
+        return imageMap[key];
+      }
+    }
+
+    const lowered = normalized.toLowerCase();
+    for (const [key, mappedPath] of imageMapEntries) {
+      if (key.toLowerCase() === lowered) {
+        return mappedPath;
+      }
+    }
+
+    return normalized;
+  };
+
+  return slides.map((slide) => ({
+    ...slide,
+    image: resolveImagePath(slide.image ?? slide.imagePath ?? slide.src ?? slide.url),
+  }));
+}
 
 // SPA用のフォールバック
 app.get('*', (req, res) => {
@@ -436,6 +667,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📻 Radio server running on port ${PORT} (0.0.0.0)`);
   console.log(`📁 Audio files stored in: ${audioDir}`);
   console.log(`💾 Database: ${dbPath}`);
+  console.log(`🔐 Google OAuth: ${GOOGLE_CLIENT_ID ? 'Enabled' : 'Disabled'}`);
 });
 
 process.on('SIGINT', () => {
