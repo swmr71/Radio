@@ -325,9 +325,10 @@ async function startTranscription(episodeId, filepath) {
       language_code: 'ja',
     });
 
+    // 💡 u.text の空白を正規表現で削除するように修正
     const utterances = transcript.utterances?.map(u => ({
       speaker: u.speaker,
-      text: u.text,
+      text: u.text ? u.text.replace(/\s+/g, '') : '',
       start: u.start,
       end: u.end
     })) || [];
