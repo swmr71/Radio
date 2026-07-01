@@ -16,8 +16,14 @@ import {
   Music,
   Menu,
   ListPlus,
-  MessageSquare, // 追加
+  MessageSquare,
+  Edit2, // 追加
 } from 'lucide-react';
+
+// ソース2より追加
+import { useAuth } from './AuthProvider';
+import { UserMenu } from './UserMenu';
+import { EditEpisodeModal } from './EditEpisodeModal';
 
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
@@ -47,6 +53,11 @@ export default function RadioApp() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
   const [uploadedSize, setUploadedSize] = useState(0);
+
+  // ソース2より追加のStateとフック
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingEpisode, setEditingEpisode] = useState(null);
+  const { isAdmin, user } = useAuth();
 
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -139,8 +150,15 @@ export default function RadioApp() {
   };
 
   const handleUpload = async (e) => {
-    e.preventDefault();
-    if (!uploadFile || !episodeTitle) {
+    if (e) e.preventDefault();
+
+    // 権限チェック
+    if (!isAdmin) {
+      alert('管理者のみアップロード可能です。アカウント管理者に連絡してください。');
+      return;
+    }
+
+    if (!uploadFile || !episodeTitle.trim()) {
       alert('タイトルと音声ファイルを選択してください');
       return;
     }
@@ -168,13 +186,13 @@ export default function RadioApp() {
           const elapsedSeconds = (Date.now() - uploadStartTimeRef.current) / 1000;
           if (elapsedSeconds > 0) {
             const speed = e.loaded / elapsedSeconds;
-            setUploadSpeed(speed);
+            setUploadSpeed(speed); // formatBytesでパースするためバイト単位のまま保持
           }
         }
       });
 
       xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
+        if (xhr.status === 200 || xhr.status === 201) {
           alert('アップロード成功！文字起こしを開始します。');
           setUploadFile(null);
           setEpisodeTitle('');
@@ -335,6 +353,12 @@ export default function RadioApp() {
   };
 
   const handleDelete = async (id) => {
+    // 権限チェック
+    if (!isAdmin) {
+      alert('管理者のみ削除可能です');
+      return;
+    }
+
     if (!confirm('このエピソードを削除しますか？')) return;
 
     try {
@@ -345,6 +369,9 @@ export default function RadioApp() {
           setCurrentEpisode(null);
           setIsPlaying(false);
         }
+      } else {
+        const error = await res.json();
+        alert(`削除に失敗しました: ${error.error}`);
       }
     } catch (error) {
       console.error('Delete failed:', error);
@@ -505,16 +532,32 @@ export default function RadioApp() {
                 )}
               </div>
 
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(ep.id);
-                }}
-                style={styles.deleteBtn}
-                title="エピソードを削除"
-              >
-                <Trash2 size={18} />
-              </button>
+              {/* 管理者のみ: 編集・削除ボタン */}
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingEpisode(ep);
+                      setShowEditModal(true);
+                    }}
+                    style={{ ...styles.favoriteBtn, color: '#2563eb' }}
+                    title="エピソードを編集"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(ep.id);
+                    }}
+                    style={styles.deleteBtn}
+                    title="エピソードを削除"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -645,9 +688,13 @@ export default function RadioApp() {
 
       {/* サイドバー */}
       <aside className="responsive-sidebar" style={styles.sidebar}>
+        {/* ロゴとUserMenuの配置 */}
         <div style={styles.sidebarHeader}>
-          <Music size={24} style={{ color: '#4f46e5' }} />
-          <h1 style={styles.sidebarTitle}>ラジオ</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Music size={24} style={{ color: '#4f46e5' }} />
+            <h1 style={styles.sidebarTitle}>超かぐや姫</h1>
+          </div>
+          <UserMenu />
         </div>
 
         <nav style={styles.sidebarNav}>
@@ -664,19 +711,24 @@ export default function RadioApp() {
             <Music size={18} />
             <span>ブラウズ</span>
           </button>
-          <button
-            onClick={() => {
-              setCurrentPage('upload');
-              setSidebarOpen(false);
-            }}
-            style={{
-              ...styles.navButton,
-              ...(currentPage === 'upload' ? styles.navButtonActive : {}),
-            }}
-          >
-            <Upload size={18} />
-            <span>アップロード</span>
-          </button>
+          
+          {/* 管理者のみ: アップロードメニューを表示 */}
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setCurrentPage('upload');
+                setSidebarOpen(false);
+              }}
+              style={{
+                ...styles.navButton,
+                ...(currentPage === 'upload' ? styles.navButtonActive : {}),
+              }}
+            >
+              <Upload size={18} />
+              <span style={{ color: '#dc2626', fontWeight: '600' }}>📤 アップロード</span>
+            </button>
+          )}
+
           <button
             onClick={() => {
               setCurrentPage('favorites');
@@ -772,77 +824,84 @@ export default function RadioApp() {
           <div style={styles.page} className="animate-fade-in">
             <section style={styles.section}>
               <h2 style={styles.sectionTitle}>エピソードをアップロード</h2>
-              <form onSubmit={handleUpload} style={styles.form}>
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>タイトル</label>
-                  <input
-                    type="text"
-                    value={episodeTitle}
-                    onChange={(e) => setEpisodeTitle(e.target.value)}
-                    placeholder="エピソードのタイトル"
-                    style={styles.input}
-                  />
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>説明</label>
-                  <textarea
-                    value={episodeDesc}
-                    onChange={(e) => setEpisodeDesc(e.target.value)}
-                    placeholder="エピソードの説明（任意）"
-                    style={styles.textarea}
-                  />
-                </div>
-
-                <div style={styles.formGroup}>
-                  <label style={styles.label}>音声ファイル</label>
-                  <div style={styles.fileInputWrapper} onClick={() => fileInputRef.current?.click()}>
+              
+              {isAdmin ? (
+                <form onSubmit={handleUpload} style={styles.form}>
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>タイトル</label>
                     <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="audio/*,.zip"
-                      onChange={(e) => setUploadFile(e.target.files[0])}
-                      style={styles.fileInput}
+                      type="text"
+                      value={episodeTitle}
+                      onChange={(e) => setEpisodeTitle(e.target.value)}
+                      placeholder="エピソードのタイトル"
+                      style={styles.input}
                     />
-                    <span style={styles.fileInputPlaceholder}>
-                      {uploadFile ? `📄 ${uploadFile.name}` : 'ファイルを選択...'}
-                    </span>
                   </div>
-                </div>
 
-                {uploading && (
-                  <div style={styles.progressContainer}>
-                    <div style={styles.progressBarContainer}>
-                      <div
-                        style={{
-                          ...styles.progressFill,
-                          width: `${uploadProgress}%`,
-                        }}
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>説明</label>
+                    <textarea
+                      value={episodeDesc}
+                      onChange={(e) => setEpisodeDesc(e.target.value)}
+                      placeholder="エピソードの説明（任意）"
+                      style={styles.textarea}
+                    />
+                  </div>
+
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>音声ファイル (MP3) または ZIP (MP3 + 画像 + JSON)</label>
+                    <div style={styles.fileInputWrapper} onClick={() => fileInputRef.current?.click()}>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".mp3,audio/mpeg,.zip,application/zip"
+                        onChange={(e) => setUploadFile(e.target.files[0])}
+                        style={styles.fileInput}
                       />
-                    </div>
-                    <div style={styles.progressInfo}>
-                      <span>{Math.round(uploadProgress)}%</span>
-                      <span>
-                        {formatBytes(uploadedSize)} / {formatBytes(uploadFile.size)}
-                      </span>
-                      <span>
-                        {uploadSpeed > 0 ? `${formatBytes(uploadSpeed)}/s` : '-'}
+                      <span style={styles.fileInputPlaceholder}>
+                        {uploadFile ? `📄 ${uploadFile.name}` : 'ファイルを選択...'}
                       </span>
                     </div>
                   </div>
-                )}
 
-                <button
-                  type="submit"
-                  disabled={uploading || !uploadFile || !episodeTitle}
-                  style={{
-                    ...styles.submitBtn,
-                    opacity: uploading || !uploadFile || !episodeTitle ? 0.5 : 1,
-                  }}
-                >
-                  {uploading ? 'アップロード中...' : 'アップロード'}
-                </button>
-              </form>
+                  {uploading && (
+                    <div style={styles.progressContainer}>
+                      <div style={styles.progressBarContainer}>
+                        <div
+                          style={{
+                            ...styles.progressFill,
+                            width: `${uploadProgress}%`,
+                          }}
+                        />
+                      </div>
+                      <div style={styles.progressInfo}>
+                        <span>{Math.round(uploadProgress)}%</span>
+                        <span>
+                          {formatBytes(uploadedSize)} / {formatBytes(uploadFile.size)}
+                        </span>
+                        <span>
+                          {uploadSpeed > 0 ? `${formatBytes(uploadSpeed)}/s` : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={uploading || !uploadFile || !episodeTitle}
+                    style={{
+                      ...styles.submitBtn,
+                      opacity: uploading || !uploadFile || !episodeTitle ? 0.5 : 1,
+                    }}
+                  >
+                    {uploading ? 'アップロード中...' : 'アップロード'}
+                  </button>
+                </form>
+              ) : (
+                <div style={{ padding: '2rem', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '12px', color: '#991b1b' }}>
+                  申し訳ありません。管理者のみアップロード可能です。アカウント管理者に連絡してください。
+                </div>
+              )}
             </section>
           </div>
         )}
@@ -921,7 +980,7 @@ export default function RadioApp() {
           </div>
         )}
 
-        {/* 拡張プレイヤー（文字起こし表示機能付き2カラム版） */}
+        {/* 拡張プレイヤー */}
         {playerExpanded && currentEpisode && (
           <div style={styles.expandedPlayer} className="animate-slide-up">
             <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn}>
@@ -998,7 +1057,7 @@ export default function RadioApp() {
                 </p>
               </div>
 
-              {/* 右パネル: 文字起こし表示コンポーネント */}
+              {/* 右パネル: 文字起こし表示 */}
               <div className="player-right-panel">
                 <div style={styles.transcriptHeader}>
                   <MessageSquare size={18} style={{ color: '#4f46e5' }} />
@@ -1052,12 +1111,23 @@ export default function RadioApp() {
           </div>
         )}
       </div>
+
+      {/* 編集モーダル (ソース2より追加) */}
+      {showEditModal && editingEpisode && (
+        <EditEpisodeModal
+          episode={editingEpisode}
+          onClose={() => setShowEditModal(false)}
+          onSave={() => {
+            fetchEpisodes();
+            setShowEditModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
 const styles = {
-  // ... (既存のスタイル群はすべて保持)
   appContainer: {
     display: 'flex',
     height: '100vh',
@@ -1078,14 +1148,16 @@ const styles = {
   sidebarHeader: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: '0.75rem',
     marginBottom: '2rem',
+    width: '100%',
   },
   sidebarTitle: {
     fontSize: '1.5rem',
     fontWeight: '700',
     margin: 0,
-    color: '#1f2937',
+    color: '#4f46e5',
   },
   sidebarNav: {
     display: 'flex',
@@ -1105,6 +1177,8 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
+    width: '100%',
+    textAlign: 'left',
   },
   navButtonActive: {
     backgroundColor: '#ede9fe',
@@ -1180,6 +1254,7 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'background-color 0.2s',
+    width: '100%',
   },
   mainContent: {
     marginLeft: '250px',
@@ -1662,8 +1737,6 @@ const styles = {
     color: '#6b7280',
     fontFamily: 'monospace',
   },
-
-  /* 追記した文字起こし関連スタイル */
   badge: {
     display: 'inline-block',
     padding: '0.25rem 0.5rem',
