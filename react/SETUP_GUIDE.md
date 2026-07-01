@@ -149,7 +149,7 @@ const handleDeleteEpisode = async (id) => {
 **Sidebar にユーザーメニューを追加:**
 ```jsx
 <div className="p-4 border-b border-gray-300 flex items-center justify-between">
-  {sidebarOpen && <h1>超かぐや姫ラジオ</h1>}
+  {sidebarOpen && <h1>RBSラジオ</h1>}
   <UserMenu />
 </div>
 ```

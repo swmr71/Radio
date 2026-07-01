@@ -107,7 +107,7 @@ export default function RadioApp() {
       <div className={`...既存のスタイル... ${sidebarOpen ? 'w-64' : 'w-20'}`}>
         {/* ロゴエリア */}
         <div className="p-4 border-b border-gray-300 flex items-center justify-between">
-          {sidebarOpen && <h1 className="...">超かぐや姫ラジオ</h1>}
+          {sidebarOpen && <h1 className="...">RBSラジオ</h1>}
           <UserMenu /> {/* ここに追加 */}
         </div>
 

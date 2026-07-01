@@ -181,7 +181,7 @@ NODE_ENV=production npm start
 **LoginPage.jsx:**
 ```jsx
 <h1 className="text-3xl font-bold">
-  超かぐや姫 ラジオ  {/* ここを変更 */}
+  RBS ラジオ  {/* ここを変更 */}
 </h1>
 
 // 色を変更

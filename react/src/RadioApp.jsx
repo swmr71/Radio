@@ -693,7 +693,7 @@ export default function RadioApp() {
         <div style={styles.sidebarHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
             <Music size={24} style={{ color: '#4f46e5' }} />
-            <h1 style={styles.sidebarTitle}>超かぐや姫</h1>
+            <h1 style={styles.sidebarTitle}>RBS</h1>
           </div>
           <UserMenu />
         </div>
