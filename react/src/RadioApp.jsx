@@ -54,8 +54,7 @@ export default function RadioApp() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
   const [uploadedSize, setUploadedSize] = useState(0);
-
-  // ソース2より追加のStateとフック
+  const [timeRestrictedMessage, setTimeRestrictedMessage] = useState(null); //制限時間の設定
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEpisode, setEditingEpisode] = useState(null);
   const { isAdmin, user } = useAuth();
@@ -116,6 +115,15 @@ export default function RadioApp() {
     try {
       const res = await fetch('/api/episodes');
       const data = await res.json();
+      
+      // 時間制限エラーのチェック
+      if (res.status === 403 && data.isTimeRestricted) {
+        setTimeRestrictedMessage(data.error);
+        return;
+      }
+
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch');
+      
       setEpisodes(data);
 
       // もし現在再生中のエピソードがポーリングで「完了」になったら、詳細データも再取得して反映
@@ -129,6 +137,7 @@ export default function RadioApp() {
       console.error('Failed to fetch episodes:', error);
     }
   };
+
 
   const refreshCurrentEpisodeDetails = async (id) => {
     try {
@@ -682,6 +691,41 @@ export default function RadioApp() {
   `;
 
   const currentMs = currentTime * 1000;
+
+  // 時間外制限のメッセージがある場合は、アプリのメインUIを表示せずにロック画面を返す
+  if (timeRestrictedMessage) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        width: '100vw',
+        backgroundColor: '#f3f4f6',
+        color: '#1f2937',
+        padding: '2rem',
+        textAlign: 'center',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+      }}>
+        <div style={{
+          backgroundColor: '#fff',
+          padding: '3rem',
+          borderRadius: '16px',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+          maxWidth: '500px',
+          width: '100%'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '700', marginBottom: '1.25rem', color: '#ef4444' }}>
+            サービス利用時間外
+          </h2>
+          <p style={{ fontSize: '1.05rem', lineHeight: '1.6', whiteSpace: 'pre-wrap', color: '#4b5563', margin: 0 }}>
+            {timeRestrictedMessage}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.appContainer}>

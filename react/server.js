@@ -209,6 +209,60 @@ const isAdmin = (req, res, next) => {
   }
 };
 
+// ============ 利用時間制限ミドルウェア ============
+const checkTimeRestriction = (req, res, next) => {
+  const timeRange = process.env.ALLOWED_TIME_RANGE; // 例: "16:30-3:30" や "5:00-7:00"
+  const restrictionMessage = process.env.RESTRICTED_MESSAGE || '現在はシステム利用時間外です。';
+
+  // 環境変数が設定されていない場合は制限なし
+  if (!timeRange) {
+    return next();
+  }
+
+  // APIリクエストと音声ストリーミング（/api と /audio）のみを制限対象にする
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/audio')) {
+    return next();
+  }
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // 時間設定をパース
+  const [startStr, endStr] = timeRange.split('-');
+  const [startH, startM] = startStr.split(':').map(Number);
+  const [endH, endM] = endStr.split(':').map(Number);
+
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+
+  let isAllowed = false;
+
+  if (startMinutes <= endMinutes) {
+    // パターンA: 同日内 (例: 5:00 - 7:00)
+    if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
+      isAllowed = true;
+    }
+  } else {
+    // パターンB: 日またぎ (例: 16:30 - 3:30)
+    if (currentMinutes >= startMinutes || currentMinutes <= endMinutes) {
+      isAllowed = true;
+    }
+  }
+
+  // 許可時間外の場合は403エラーとメッセージを返す
+  if (!isAllowed) {
+    return res.status(403).json({ 
+      error: restrictionMessage, 
+      isTimeRestricted: true 
+    });
+  }
+
+  next();
+};
+
+// Express ミドルウェア設定の直後、API定義の前に差し込む
+app.use(checkTimeRestriction);
+
 // ============ 認証エンドポイント ============
 app.get('/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
