@@ -2,6 +2,9 @@ import React from 'react';
 import { Music } from 'lucide-react';
 
 export function SlideshowDisplay({ config, currentTime, duration }) {
+  // durationMsをコンポーネント全体で使えるように外側で定義
+  const durationMs = Number.isFinite(duration) ? duration * 1000 : 0;
+
   const normalizeSlides = (rawConfig) => {
     const rawSlides = Array.isArray(rawConfig)
       ? rawConfig
@@ -10,8 +13,6 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
       : rawConfig && typeof rawConfig === 'object'
       ? [rawConfig]
       : [];
-
-    const durationMs = Number.isFinite(duration) ? duration * 1000 : 0;
 
     return rawSlides
       .map((slide) => {
@@ -39,25 +40,18 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
   const slides = normalizeSlides(config);
   const currentTimeMs = currentTime * 1000;
 
-  // 現在時刻に一致するスライドがなければ、直前のスライドを使う。
-  // ただし再生終了後は必ずアイコンに戻す。
-  const currentImageIndex = slides.findIndex(
-    (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
-  );
+  // 再生終了しているかどうかの判定
+  const isEnded = durationMs > 0 && currentTimeMs >= durationMs;
 
-  const fallbackIndex = slides.reduce((latestIndex, slide, index) => {
-    if (currentTimeMs >= slide.start) {
-      return index;
-    }
-    return latestIndex;
-  }, -1);
+  // 現在時刻がスライドの表示期間（start <= currentTime < end）に合致するインデックスを探す
+  const currentImageIndex = isEnded
+    ? -1
+    : slides.findIndex(
+        (slide) => currentTimeMs >= slide.start && currentTimeMs < slide.end
+      );
 
-  const shouldShowFallbackImage =
-    currentImageIndex !== -1 &&
-    fallbackIndex !== -1 &&
-    currentTimeMs < (durationMs || Number.POSITIVE_INFINITY);
-
-  if (slides.length === 0 || (!shouldShowFallbackImage && currentTimeMs >= durationMs && durationMs > 0)) {
+  // 該当するスライドがない、または再生終了後はアイコン（非表示状態）を表示
+  if (slides.length === 0 || currentImageIndex === -1) {
     return (
       <div style={styles.albumArt}>
         <Music size={64} />
@@ -65,27 +59,17 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
     );
   }
 
-  const imageIndex = currentImageIndex !== -1 ? currentImageIndex : fallbackIndex;
-
-  if (imageIndex === -1) {
-    return (
-      <div style={styles.albumArt}>
-        <Music size={64} />
-      </div>
-    );
-  }
-
-  const currentImage = slides[imageIndex];
+  const currentImage = slides[currentImageIndex];
 
   return (
     <div style={styles.slideshowContainer}>
       <img
         src={currentImage.image}
-        alt={`Slide ${imageIndex + 1}`}
+        alt={`Slide ${currentImageIndex + 1}`}
         style={styles.slideshowImage}
       />
       <div style={styles.slideshowIndicator}>
-        {imageIndex + 1} / {slides.length}
+        {currentImageIndex + 1} / {slides.length}
       </div>
     </div>
   );
