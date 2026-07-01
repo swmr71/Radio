@@ -7,8 +7,8 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./audio:/app/audio
-      - ./episodes.db:/app/episodes.db
+      - ./audio:/app/react/audio
+      - ./episodes.db:/app/react/episodes.db
     restart: always
     environment:
       - NODE_ENV=production
