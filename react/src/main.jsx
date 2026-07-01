@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import { AuthProvider, useAuth } from './AuthProvider';
 import { LoginPage } from './LoginPage';
 import RadioApp from './RadioApp';
-import './index.css';
 
 function AppWrapper() {
   const { isAuthenticated, loading } = useAuth();
