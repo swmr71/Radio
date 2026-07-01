@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, Edit2, MessageSquare, Image, Loader } from 'lucide-react';
+import { X, Save, Edit2, MessageSquare, Image, Loader, Plus, Trash2 } from 'lucide-react';
 
 export function EditEpisodeModal({ episode, onClose, onSave }) {
   const [activeTab, setActiveTab] = useState('info'); // info, transcript, slideshow
@@ -58,238 +58,308 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
     }
   };
 
-  // 文字起こしの話者単位で編集
+  // 文字起こしの更新
   const handleTranscriptChange = (index, field, value) => {
     const updated = [...transcript];
     updated[index] = { ...updated[index], [field]: value };
     setTranscript(updated);
   };
 
-  // スライドショー画像のパスを更新
+  // 文字起こしの追加・削除
+  const addTranscriptItem = () => {
+    setTranscript([...transcript, { speaker: '', start: 0, end: 0, text: '' }]);
+  };
+
+  const removeTranscriptItem = (index) => {
+    setTranscript(transcript.filter((_, i) => i !== index));
+  };
+
+  // スライドショーの更新
   const handleSlideshowChange = (index, field, value) => {
     const updated = [...slideshow];
     updated[index] = { ...updated[index], [field]: value };
     setSlideshow(updated);
   };
 
+  // スライドショーの追加・削除
+  const addSlideshowItem = () => {
+    setSlideshow([...slideshow, { image: '', time: 0, caption: '' }]);
+  };
+
+  const removeSlideshowItem = (index) => {
+    setSlideshow(slideshow.filter((_, i) => i !== index));
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-96 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      {/* max-h を 85vh に拡張し、横幅も max-w-4xl に広げて視認性を確保 */}
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col border border-gray-100">
+        
         {/* ヘッダー */}
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-xl font-bold text-gray-900">エピソード編集</h2>
+        <div className="flex items-center justify-between p-5 border-b bg-gray-50/50">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">エピソード編集</h2>
+            <p className="text-xs text-gray-500 mt-0.5">元のタイトル: {episode.title}</p>
+          </div>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded transition-colors"
+            className="p-1.5 hover:bg-gray-200/70 text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
           >
-            <X className="w-6 h-6" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* タブ */}
-        <div className="flex border-b">
-          <button
-            onClick={() => setActiveTab('info')}
-            className={`flex-1 py-2 px-4 text-center font-medium transition-colors ${
-              activeTab === 'info'
-                ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Edit2 className="w-4 h-4 inline mr-2" />
-            情報
-          </button>
-          <button
-            onClick={() => setActiveTab('transcript')}
-            className={`flex-1 py-2 px-4 text-center font-medium transition-colors ${
-              activeTab === 'transcript'
-                ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4 inline mr-2" />
-            文字起こし
-          </button>
-          <button
-            onClick={() => setActiveTab('slideshow')}
-            className={`flex-1 py-2 px-4 text-center font-medium transition-colors ${
-              activeTab === 'slideshow'
-                ? 'border-b-2 border-indigo-600 text-indigo-600'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Image className="w-4 h-4 inline mr-2" />
-            スライド
-          </button>
+        {/* タブメニュー */}
+        <div className="flex border-b bg-gray-50/30 px-2">
+          {[
+            { id: 'info', label: '基本情報', icon: Edit2 },
+            { id: 'transcript', label: '文字起こし', icon: MessageSquare },
+            { id: 'slideshow', label: 'スライドショー', icon: Image },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 py-3 px-6 text-sm font-medium border-b-2 transition-all ${
+                  isActive
+                    ? 'border-indigo-600 text-indigo-600 bg-white -mb-[1px] font-semibold'
+                    : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-200'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* コンテンツ */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {/* 情報タブ */}
+        {/* メインコンテンツ（スクロール領域） */}
+        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-6">
+          
+          {/* 1. 基本情報タブ */}
           {activeTab === 'info' && (
-            <div className="space-y-4">
+            <div className="space-y-4 max-w-2xl">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   タイトル
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-sm transition-all"
+                  placeholder="エピソードのタイトルを入力"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  説明
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  説明文
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  rows={5}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                  rows={6}
+                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-sm transition-all resize-none"
+                  placeholder="エピソードの詳細な説明を入力"
                 />
               </div>
             </div>
           )}
 
-          {/* 文字起こしタブ */}
+          {/* 2. 文字起こしタブ */}
           {activeTab === 'transcript' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-lg border border-indigo-100/50等">
+                <span className="text-xs text-gray-500 font-medium">セグメント数: {transcript.length} 件</span>
+                <button
+                  onClick={addTranscriptItem}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 shadow-sm transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 行を追加
+                </button>
+              </div>
+
               {transcript.length === 0 ? (
-                <p className="text-gray-500 text-sm">文字起こしデータはまだありません</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm">文字起こしデータがありません</p>
+                </div>
               ) : (
-                transcript.map((utterance, idx) => (
-                  <div key={idx} className="p-3 bg-gray-50 rounded">
-                    <div className="flex gap-2 mb-2">
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          話者
-                        </label>
-                        <input
-                          type="text"
-                          value={utterance.speaker || ''}
-                          onChange={(e) =>
-                            handleTranscriptChange(idx, 'speaker', e.target.value)
-                          }
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                        />
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                  {transcript.map((utterance, idx) => (
+                    <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200/60 relative group">
+                      <button
+                        onClick={() => removeTranscriptItem(idx)}
+                        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-200/50 opacity-0 group-hover:opacity-100 transition-all"
+                        title="この行を削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 pr-6">
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">話者</label>
+                          <input
+                            type="text"
+                            value={utterance.speaker || ''}
+                            onChange={(e) => handleTranscriptChange(idx, 'speaker', e.target.value)}
+                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">開始時間 (ms)</label>
+                          <input
+                            type="number"
+                            value={utterance.start ?? ''}
+                            onChange={(e) => handleTranscriptChange(idx, 'start', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">終了時間 (ms)</label>
+                          <input
+                            type="number"
+                            value={utterance.end ?? ''}
+                            onChange={(e) => handleTranscriptChange(idx, 'end', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          />
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          開始時間（ms）
-                        </label>
-                        <input
-                          type="number"
-                          value={utterance.start || 0}
-                          onChange={(e) =>
-                            handleTranscriptChange(idx, 'start', parseInt(e.target.value))
-                          }
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="block text-xs font-medium text-gray-700 mb-1">
-                          終了時間（ms）
-                        </label>
-                        <input
-                          type="number"
-                          value={utterance.end || 0}
-                          onChange={(e) =>
-                            handleTranscriptChange(idx, 'end', parseInt(e.target.value))
-                          }
-                          className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">テキスト</label>
+                        <textarea
+                          value={utterance.text || ''}
+                          onChange={(e) => handleTranscriptChange(idx, 'text', e.target.value)}
+                          rows={2}
+                          className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 resize-none"
                         />
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        テキスト
-                      </label>
-                      <textarea
-                        value={utterance.text || ''}
-                        onChange={(e) =>
-                          handleTranscriptChange(idx, 'text', e.target.value)
-                        }
-                        rows={2}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                    </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           )}
 
-          {/* スライドショータブ */}
+          {/* 3. スライドショータブ */}
           {activeTab === 'slideshow' && (
-            <div className="space-y-3">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-lg border border-indigo-100/50">
+                <span className="text-xs text-gray-500 font-medium">スライド数: {slideshow.length} 枚</span>
+                <button
+                  onClick={addSlideshowItem}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 shadow-sm transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5" /> スライドを追加
+                </button>
+              </div>
+
               {slideshow.length === 0 ? (
-                <p className="text-gray-500 text-sm">スライドショーデータはまだありません</p>
+                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
+                  <Image className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm">スライドデータがありません</p>
+                </div>
               ) : (
-                slideshow.map((slide, idx) => (
-                  <div key={idx} className="p-3 bg-gray-50 rounded">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
-                      スライド {idx + 1}
-                    </label>
-                    {slide.image && (
-                      <img
-                        src={slide.image}
-                        alt={`Slide ${idx + 1}`}
-                        className="w-full h-40 object-cover rounded mb-2"
-                      />
-                    )}
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        placeholder="画像URL"
-                        value={slide.image || ''}
-                        onChange={(e) => handleSlideshowChange(idx, 'image', e.target.value)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <input
-                        type="number"
-                        placeholder="開始時間（ms）"
-                        value={slide.time || 0}
-                        onChange={(e) =>
-                          handleSlideshowChange(idx, 'time', parseInt(e.target.value))
-                        }
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <textarea
-                        placeholder="キャプション"
-                        value={slide.caption || ''}
-                        onChange={(e) => handleSlideshowChange(idx, 'caption', e.target.value)}
-                        rows={2}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto pr-1">
+                  {slideshow.map((slide, idx) => (
+                    <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200/60 relative group flex flex-col justify-between">
+                      <button
+                        onClick={() => removeSlideshowItem(idx)}
+                        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-200/50 opacity-0 group-hover:opacity-100 transition-all z-10"
+                        title="このスライドを削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+
+                      <div className="space-y-3">
+                        <div className="relative aspect-video w-full bg-gray-200 rounded-lg overflow-hidden border border-gray-300/40 flex items-center justify-center">
+                          {slide.image ? (
+                            <img
+                              src={slide.image}
+                              alt={`Slide ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.target.src = 'https://placehold.co/600x400?text=Invalid+URL'; }}
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-400">画像なし</span>
+                          )}
+                          <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 text-white text-[10px] rounded font-medium">
+                            Slide {idx + 1}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">画像URL</label>
+                            <input
+                              type="text"
+                              placeholder="https://..."
+                              value={slide.image || ''}
+                              onChange={(e) => handleSlideshowChange(idx, 'image', e.target.value)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">表示タイミング (ms)</label>
+                            <input
+                              type="number"
+                              placeholder="0"
+                              value={slide.time ?? ''}
+                              onChange={(e) => handleSlideshowChange(idx, 'time', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">キャプション</label>
+                            <textarea
+                              placeholder="スライドの説明文"
+                              value={slide.caption || ''}
+                              onChange={(e) => handleSlideshowChange(idx, 'caption', e.target.value)}
+                              rows={2}
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 resize-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                </div>
               )}
             </div>
           )}
         </div>
 
         {/* フッター */}
-        <div className="border-t p-4 bg-gray-50 flex justify-end gap-2">
-          {error && <p className="text-sm text-red-600 flex-1">{error}</p>}
-          {success && <p className="text-sm text-green-600 flex-1">{success}</p>}
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            キャンセル
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 transition-colors flex items-center gap-2"
-          >
-            {isSaving && <Loader className="w-4 h-4 animate-spin" />}
-            保存
-          </button>
+        <div className="border-t p-4 bg-gray-50 flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            {error && <p className="text-sm text-red-600 font-medium truncate">⚠️ {error}</p>}
+            {success && <p className="text-sm text-green-600 font-medium truncate">✨ {success}</p>}
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors flex items-center gap-2 shadow-sm shadow-indigo-100"
+            >
+              {isSaving ? (
+                <Loader className="w-4 h-4 animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {activeTab === 'info' ? '基本情報を保存' : activeTab === 'transcript' ? '文字起こしを保存' : 'スライドを保存'}
+            </button>
+          </div>
         </div>
+
       </div>
     </div>
   );
