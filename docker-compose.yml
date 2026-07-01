@@ -7,8 +7,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
-      - ./audio:/app/audio
-      - ./episodes.db:/app/episodes.db
+      - ./data:/app/data
 
     restart: always
     environment:
