@@ -13,7 +13,7 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  // タブ別の保存処理
+  // 保存処理
   const handleSave = async () => {
     setIsSaving(true);
     setError(null);
@@ -58,14 +58,13 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
     }
   };
 
-  // 文字起こしの更新
+  // 文字起こしの更新・追加・削除
   const handleTranscriptChange = (index, field, value) => {
     const updated = [...transcript];
     updated[index] = { ...updated[index], [field]: value };
     setTranscript(updated);
   };
 
-  // 文字起こしの追加・削除
   const addTranscriptItem = () => {
     setTranscript([...transcript, { speaker: '', start: 0, end: 0, text: '' }]);
   };
@@ -74,14 +73,13 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
     setTranscript(transcript.filter((_, i) => i !== index));
   };
 
-  // スライドショーの更新
+  // スライドショーの更新・追加・削除
   const handleSlideshowChange = (index, field, value) => {
     const updated = [...slideshow];
     updated[index] = { ...updated[index], [field]: value };
     setSlideshow(updated);
   };
 
-  // スライドショーの追加・削除
   const addSlideshowItem = () => {
     setSlideshow([...slideshow, { image: '', time: 0, caption: '' }]);
   };
@@ -91,26 +89,22 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      {/* max-h を 85vh に拡張し、横幅も max-w-4xl に広げて視認性を確保 */}
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col border border-gray-100">
+    <div style={modalStyles.overlay}>
+      <div style={modalStyles.container}>
         
         {/* ヘッダー */}
-        <div className="flex items-center justify-between p-5 border-b bg-gray-50/50">
+        <div style={modalStyles.header}>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">エピソード編集</h2>
-            <p className="text-xs text-gray-500 mt-0.5">元のタイトル: {episode.title}</p>
+            <h2 style={modalStyles.headerTitle}>エピソード編集</h2>
+            <p style={modalStyles.headerSubtitle}>元のタイトル: {episode.title}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-200/70 text-gray-500 hover:text-gray-700 rounded-lg transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={onClose} style={modalStyles.closeButton}>
+            <X size={20} />
           </button>
         </div>
 
         {/* タブメニュー */}
-        <div className="flex border-b bg-gray-50/30 px-2">
+        <div style={modalStyles.tabBar}>
           {[
             { id: 'info', label: '基本情報', icon: Edit2 },
             { id: 'transcript', label: '文字起こし', icon: MessageSquare },
@@ -122,118 +116,111 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 py-3 px-6 text-sm font-medium border-b-2 transition-all ${
-                  isActive
-                    ? 'border-indigo-600 text-indigo-600 bg-white -mb-[1px] font-semibold'
-                    : 'border-transparent text-gray-500 hover:text-gray-900 hover:border-gray-200'
-                }`}
+                style={{
+                  ...modalStyles.tabButton,
+                  ...(isActive ? modalStyles.tabButtonActive : {}),
+                }}
               >
-                <Icon className="w-4 h-4" />
+                <Icon size={16} />
                 {tab.label}
               </button>
             );
           })}
         </div>
 
-        {/* メインコンテンツ（スクロール領域） */}
-        <div className="flex-1 overflow-y-auto p-6 bg-white space-y-6">
+        {/* メインスクロールエリア */}
+        <div style={modalStyles.scrollArea}>
           
-          {/* 1. 基本情報タブ */}
+          {/* 1. 基本情報 */}
           {activeTab === 'info' && (
-            <div className="space-y-4 max-w-2xl">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  タイトル
-                </label>
+            <div style={{ maxWidth: '600px' }}>
+              <div style={modalStyles.formGroup}>
+                <label style={modalStyles.label}>タイトル</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-sm transition-all"
-                  placeholder="エピソードのタイトルを入力"
+                  style={modalStyles.input}
+                  placeholder="タイトルを入力してください"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  説明文
-                </label>
+              <div style={modalStyles.formGroup}>
+                <label style={modalStyles.label}>説明文</label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={6}
-                  className="w-full px-3.5 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-sm transition-all resize-none"
-                  placeholder="エピソードの詳細な説明を入力"
+                  style={modalStyles.textarea}
+                  placeholder="エピソードの説明文を入力してください"
                 />
               </div>
             </div>
           )}
 
-          {/* 2. 文字起こしタブ */}
+          {/* 2. 文字起こし */}
           {activeTab === 'transcript' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-lg border border-indigo-100/50等">
-                <span className="text-xs text-gray-500 font-medium">セグメント数: {transcript.length} 件</span>
-                <button
-                  onClick={addTranscriptItem}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 shadow-sm transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" /> 行を追加
+            <div>
+              <div style={modalStyles.subHeaderActions}>
+                <span style={modalStyles.countBadge}>セグメント数: {transcript.length} 件</span>
+                <button onClick={addTranscriptItem} style={modalStyles.addButton}>
+                  <Plus size={14} /> 行を追加
                 </button>
               </div>
 
               {transcript.length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                  <MessageSquare className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-400 text-sm">文字起こしデータがありません</p>
+                <div style={modalStyles.emptyState}>
+                  <MessageSquare size={32} color="#d1d5db" />
+                  <p style={{ margin: '0.5rem 0 0', color: '#9ca3af' }}>文字起こしデータはありません</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+                <div style={modalStyles.itemsList}>
                   {transcript.map((utterance, idx) => (
-                    <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200/60 relative group">
+                    <div key={idx} style={modalStyles.cardItem}>
                       <button
                         onClick={() => removeTranscriptItem(idx)}
-                        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-200/50 opacity-0 group-hover:opacity-100 transition-all"
+                        style={modalStyles.cardDeleteButton}
                         title="この行を削除"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 size={16} />
                       </button>
-                      
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 pr-6">
-                        <div>
-                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">話者</label>
+
+                      <div style={modalStyles.flexGrid3}>
+                        <div style={modalStyles.gridCol}>
+                          <label style={modalStyles.cardLabel}>話者</label>
                           <input
                             type="text"
                             value={utterance.speaker || ''}
                             onChange={(e) => handleTranscriptChange(idx, 'speaker', e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            style={modalStyles.cardInput}
                           />
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">開始時間 (ms)</label>
+                        <div style={modalStyles.gridCol}>
+                          <label style={modalStyles.cardLabel}>開始時間 (ms)</label>
                           <input
                             type="number"
                             value={utterance.start ?? ''}
                             onChange={(e) => handleTranscriptChange(idx, 'start', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            style={modalStyles.cardInput}
                           />
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">終了時間 (ms)</label>
+                        <div style={modalStyles.gridCol}>
+                          <label style={modalStyles.cardLabel}>終了時間 (ms)</label>
                           <input
                             type="number"
                             value={utterance.end ?? ''}
                             onChange={(e) => handleTranscriptChange(idx, 'end', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                            className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                            style={modalStyles.cardInput}
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">テキスト</label>
+
+                      <div style={{ marginTop: '0.75rem' }}>
+                        <label style={modalStyles.cardLabel}>テキスト</label>
                         <textarea
                           value={utterance.text || ''}
                           onChange={(e) => handleTranscriptChange(idx, 'text', e.target.value)}
                           rows={2}
-                          className="w-full px-2.5 py-1.5 text-sm bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 resize-none"
+                          style={modalStyles.cardTextarea}
                         />
                       </div>
                     </div>
@@ -243,84 +230,77 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
             </div>
           )}
 
-          {/* 3. スライドショータブ */}
+          {/* 3. スライドショー */}
           {activeTab === 'slideshow' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center bg-indigo-50/50 p-3 rounded-lg border border-indigo-100/50">
-                <span className="text-xs text-gray-500 font-medium">スライド数: {slideshow.length} 枚</span>
-                <button
-                  onClick={addSlideshowItem}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 shadow-sm transition-all"
-                >
-                  <Plus className="w-3.5 h-3.5" /> スライドを追加
+            <div>
+              <div style={modalStyles.subHeaderActions}>
+                <span style={modalStyles.countBadge}>スライド数: {slideshow.length} 枚</span>
+                <button onClick={addSlideshowItem} style={modalStyles.addButton}>
+                  <Plus size={14} /> スライドを追加
                 </button>
               </div>
 
               {slideshow.length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                  <Image className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-400 text-sm">スライドデータがありません</p>
+                <div style={modalStyles.emptyState}>
+                  <Image size={32} color="#d1d5db" />
+                  <p style={{ margin: '0.5rem 0 0', color: '#9ca3af' }}>スライドデータはありません</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto pr-1">
+                <div style={modalStyles.slideGrid}>
                   {slideshow.map((slide, idx) => (
-                    <div key={idx} className="p-4 bg-gray-50 rounded-xl border border-gray-200/60 relative group flex flex-col justify-between">
+                    <div key={idx} style={modalStyles.slideCard}>
                       <button
                         onClick={() => removeSlideshowItem(idx)}
-                        className="absolute top-3 right-3 p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-200/50 opacity-0 group-hover:opacity-100 transition-all z-10"
-                        title="このスライドを削除"
+                        style={modalStyles.cardDeleteButton}
+                        title="スライドを削除"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 size={16} />
                       </button>
 
-                      <div className="space-y-3">
-                        <div className="relative aspect-video w-full bg-gray-200 rounded-lg overflow-hidden border border-gray-300/40 flex items-center justify-center">
-                          {slide.image ? (
-                            <img
-                              src={slide.image}
-                              alt={`Slide ${idx + 1}`}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { e.target.src = 'https://placehold.co/600x400?text=Invalid+URL'; }}
-                            />
-                          ) : (
-                            <span className="text-xs text-gray-400">画像なし</span>
-                          )}
-                          <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 text-white text-[10px] rounded font-medium">
-                            Slide {idx + 1}
-                          </span>
-                        </div>
+                      <div style={modalStyles.imagePreviewContainer}>
+                        {slide.image ? (
+                          <img
+                            src={slide.image}
+                            alt={`Slide ${idx + 1}`}
+                            style={modalStyles.imagePreview}
+                            onError={(e) => { e.target.src = 'https://placehold.co/600x400?text=Invalid+URL'; }}
+                          />
+                        ) : (
+                          <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>画像URL未設定</span>
+                        )}
+                        <span style={modalStyles.imageBadge}>Slide {idx + 1}</span>
+                      </div>
 
-                        <div className="space-y-2">
-                          <div>
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">画像URL</label>
-                            <input
-                              type="text"
-                              placeholder="https://..."
-                              value={slide.image || ''}
-                              onChange={(e) => handleSlideshowChange(idx, 'image', e.target.value)}
-                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">表示タイミング (ms)</label>
-                            <input
-                              type="number"
-                              placeholder="0"
-                              value={slide.time ?? ''}
-                              onChange={(e) => handleSlideshowChange(idx, 'time', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-gray-500 uppercase mb-0.5">キャプション</label>
-                            <textarea
-                              placeholder="スライドの説明文"
-                              value={slide.caption || ''}
-                              onChange={(e) => handleSlideshowChange(idx, 'caption', e.target.value)}
-                              rows={2}
-                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 resize-none"
-                            />
-                          </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+                        <div>
+                          <label style={modalStyles.cardLabel}>画像URL</label>
+                          <input
+                            type="text"
+                            placeholder="https://..."
+                            value={slide.image || ''}
+                            onChange={(e) => handleSlideshowChange(idx, 'image', e.target.value)}
+                            style={modalStyles.cardInput}
+                          />
+                        </div>
+                        <div>
+                          <label style={modalStyles.cardLabel}>表示タイミング (ms)</label>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={slide.time ?? ''}
+                            onChange={(e) => handleSlideshowChange(idx, 'time', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            style={modalStyles.cardInput}
+                          />
+                        </div>
+                        <div>
+                          <label style={modalStyles.cardLabel}>キャプション</label>
+                          <textarea
+                            placeholder="スライドの説明"
+                            value={slide.caption || ''}
+                            onChange={(e) => handleSlideshowChange(idx, 'caption', e.target.value)}
+                            rows={2}
+                            style={modalStyles.cardTextarea}
+                          />
                         </div>
                       </div>
                     </div>
@@ -332,29 +312,18 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
         </div>
 
         {/* フッター */}
-        <div className="border-t p-4 bg-gray-50 flex items-center justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            {error && <p className="text-sm text-red-600 font-medium truncate">⚠️ {error}</p>}
-            {success && <p className="text-sm text-green-600 font-medium truncate">✨ {success}</p>}
+        <div style={modalStyles.footer}>
+          <div style={modalStyles.statusMessage}>
+            {error && <span style={{ color: '#ef4444', fontWeight: '500' }}>⚠️ {error}</span>}
+            {success && <span style={{ color: '#10b981', fontWeight: '500' }}>✨ {success}</span>}
           </div>
           
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm"
-            >
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <button onClick={onClose} style={modalStyles.cancelButton}>
               キャンセル
             </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors flex items-center gap-2 shadow-sm shadow-indigo-100"
-            >
-              {isSaving ? (
-                <Loader className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
+            <button onClick={handleSave} disabled={isSaving} style={modalStyles.saveButton}>
+              {isSaving ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={16} />}
               {activeTab === 'info' ? '基本情報を保存' : activeTab === 'transcript' ? '文字起こしを保存' : 'スライドを保存'}
             </button>
           </div>
@@ -364,3 +333,311 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
     </div>
   );
 }
+
+// RadioAppの世界観（フォント、カラー、影、配置）に完全同期させたインラインスタイル
+const modalStyles = {
+  overlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2000,
+    backdropFilter: 'blur(3px)',
+    fontFamily: 'system-ui, -apple-system, sans-serif',
+  },
+  container: {
+    backgroundColor: '#fff',
+    borderRadius: '12px',
+    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+    width: '92%',
+    maxWidth: '840px',
+    maxHeight: '85vh',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    border: '1px solid #e5e7eb',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '1.25rem 1.5rem',
+    borderBottom: '1px solid #e5e7eb',
+    backgroundColor: '#f9fafb',
+  },
+  headerTitle: {
+    fontSize: '1.2rem',
+    fontWeight: '700',
+    margin: 0,
+    color: '#111827',
+  },
+  headerSubtitle: {
+    fontSize: '0.75rem',
+    color: '#6b7280',
+    margin: '0.2rem 0 0 0',
+  },
+  closeButton: {
+    background: 'none',
+    border: 'none',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    padding: '0.4rem',
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background-color 0.2s',
+    ':hover': { backgroundColor: '#f3f4f6', color: '#374151' } // 注: Reactインラインでは擬似クラスは効かないため綺麗さ重視の基本色
+  },
+  tabBar: {
+    display: 'flex',
+    borderBottom: '1px solid #e5e7eb',
+    backgroundColor: '#f9fafb',
+    padding: '0 0.75rem',
+    gap: '0.25rem',
+  },
+  tabButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.85rem 1.25rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#6b7280',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderBottom: '2px solid transparent',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
+  tabButtonActive: {
+    color: '#4f46e5',
+    borderBottom: '2px solid #4f46e5',
+    fontWeight: '600',
+    backgroundColor: '#fff',
+  },
+  scrollArea: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '1.5rem',
+    backgroundColor: '#fff',
+  },
+  formGroup: {
+    marginBottom: '1.25rem',
+  },
+  label: {
+    display: 'block',
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: '0.4rem',
+  },
+  input: {
+    width: '100%',
+    padding: '0.6rem 0.75rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    fontSize: '0.9rem',
+    outline: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  },
+  textarea: {
+    width: '100%',
+    padding: '0.6rem 0.75rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    fontSize: '0.9rem',
+    outline: 'none',
+    boxSizing: 'border-box',
+    resize: 'none',
+    fontFamily: 'inherit',
+  },
+  subHeaderActions: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#f5f3ff',
+    padding: '0.6rem 1rem',
+    borderRadius: '8px',
+    border: '1px solid #e0e7ff',
+    marginBottom: '1rem',
+  },
+  countBadge: {
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    color: '#4f46e5',
+  },
+  addButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    color: '#4f46e5',
+    backgroundColor: '#fff',
+    border: '1px solid #c7d2fe',
+    padding: '0.4rem 0.75rem',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  },
+  emptyState: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '4rem 0',
+    border: '2px dashed #e5e7eb',
+    borderRadius: '10px',
+    textAlign: 'center',
+    fontSize: '0.85rem',
+  },
+  itemsList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.75rem',
+  },
+  cardItem: {
+    position: 'relative',
+    padding: '1.25rem',
+    backgroundColor: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '10px',
+  },
+  cardDeleteButton: {
+    position: 'absolute',
+    top: '0.75rem',
+    right: '0.75rem',
+    background: 'none',
+    border: 'none',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    padding: '0.25rem',
+    borderRadius: '4px',
+  },
+  flexGrid3: {
+    display: 'flex',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    paddingRight: '1.5rem',
+  },
+  gridCol: {
+    flex: '1 1 160px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  cardLabel: {
+    fontSize: '0.7rem',
+    fontWeight: '700',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginBottom: '0.25rem',
+  },
+  cardInput: {
+    padding: '0.45rem 0.6rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    fontSize: '0.85rem',
+    backgroundColor: '#fff',
+    outline: 'none',
+  },
+  cardTextarea: {
+    width: '100%',
+    padding: '0.45rem 0.6rem',
+    border: '1px solid #d1d5db',
+    borderRadius: '6px',
+    fontSize: '0.85rem',
+    backgroundColor: '#fff',
+    outline: 'none',
+    resize: 'none',
+    boxSizing: 'border-box',
+    fontFamily: 'inherit',
+  },
+  slideGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+    gap: '1rem',
+  },
+  slideCard: {
+    position: 'relative',
+    padding: '1rem',
+    backgroundColor: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '10px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    width: '100%',
+    height: '150px',
+    backgroundColor: '#e5e7eb',
+    borderRadius: '6px',
+    overflow: 'hidden',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid #d1d5db',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  imageBadge: {
+    position: 'absolute',
+    bottom: '0.5rem',
+    left: '0.5rem',
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    color: '#fff',
+    fontSize: '0.65rem',
+    fontWeight: '600',
+    padding: '0.2rem 0.4rem',
+    borderRadius: '4px',
+  },
+  footer: {
+    borderTop: '1px solid #e5e7eb',
+    padding: '1rem 1.5rem',
+    backgroundColor: '#f9fafb',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusMessage: {
+    fontSize: '0.85rem',
+    flex: 1,
+    paddingRight: '1rem',
+  },
+  cancelButton: {
+    padding: '0.55rem 1.25rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#374151',
+    backgroundColor: '#fff',
+    border: '1px solid #d1d5db',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  },
+  saveButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.55rem 1.25rem',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#fff',
+    backgroundColor: '#4f46e5',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+  },
+};
