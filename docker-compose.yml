@@ -5,7 +5,7 @@ services:
     build: .
     container_name: on-demand-radio-v2
     ports:
-      - "3001:3001"
+      - "3301:3001"
     volumes:
       - ./data:/data
 
