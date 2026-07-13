@@ -322,26 +322,13 @@ async function startTranscription(episodeId, filepath) {
   db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['processing', episodeId]);
   console.log(`[Transcript] Started processing for episode ID: ${episodeId}`);
 
-    // 旧: DBに transcript 本体を保存
-    // 新: エピソードごとの transcript.json に保存
-    try {
-      const transcriptPath = getTranscriptPath(episodeId);
-      writeJsonAtomic(transcriptPath, utterances);
+  try {
+    const transcript = await aaiClient.transcripts.transcribe({
+      audio: filepath,
+      speaker_labels: true,
+      language_code: 'ja',
+    });
 
-      db.run(
-        'UPDATE episodes SET transcriptStatus = ? WHERE id = ?',
-        ['completed', episodeId],
-        (err) => {
-          if (err) console.error('[Transcript] DB Update Error:', err.message);
-          else console.log(`[Transcript] ✨ Successfully completed for episode ID: ${episodeId}`);
-        }
-      );
-    } catch (fileErr) {
-      console.error('[Transcript] File Save Error:', fileErr.message);
-      db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['failed', episodeId]);
-    }
-
-    // u.text の空白を正規表現で削除
     const utterances = transcript.utterances?.map(u => ({
       speaker: u.speaker,
       text: u.text ? u.text.replace(/\s+/g, '') : '',
@@ -349,16 +336,14 @@ async function startTranscription(episodeId, filepath) {
       end: u.end
     })) || [];
 
-    // Gemma 4 26B による文章の整形・誤字修正処理
     if (geminiClient && utterances.length > 0) {
-      console.log(`[Transcript] Total utterances found: ${utterances.length}. Starting Gemma 4 26B refinement...`);
-      
-      const chunkSize = 30; // API制限や途切れ対策のため30件ずつバッチ処理
+      console.log(`[Transcript] Total utterances found: ${utterances.length}. Starting Gemma refinement...`);
+
+      const chunkSize = 30;
       const totalChunks = Math.ceil(utterances.length / chunkSize);
 
       for (let i = 0; i < utterances.length; i += chunkSize) {
         const currentChunkNum = Math.floor(i / chunkSize) + 1;
-        // 💡 進捗がわかるようにログを追加
         console.log(`[Transcript] 🤖 Gemma Refinement: Processing chunk ${currentChunkNum} / ${totalChunks}...`);
 
         const chunk = utterances.slice(i, i + chunkSize);
@@ -367,18 +352,16 @@ async function startTranscription(episodeId, filepath) {
         try {
           const response = await geminiClient.models.generateContent({
             model: 'gemma-4-26b-a4b-it',
-            config: {
-              responseMimeType: 'application/json',
-            },
-            contents: `以下のJSON配列に含まれる各オブジェクトの "text" について、誤字・脱字を修正し、必要に応じて適切な句読点や改行を追加してください。
-・JSONの配列構造、オブジェクトの配列長、"id" は絶対に変更しないでください。
-・"text" の中身だけを綺麗に修正してください。
-・解説文などは一切含めず、有効なJSONのみを出力してください。
+            config: { responseMimeType: 'application/json' },
+            contents: `以下のJSON配列に含まれる各オブジェクトの "text" を自然な日本語に修正してください。
+- 配列構造、要素数、id は変更しない
+- text だけ修正する
+- 有効なJSONのみ返す
 
-${JSON.stringify(inputData)}`,
+${JSON.stringify(inputData)}`
           });
 
-          if (response.text) {
+          if (response?.text) {
             let jsonStr = response.text.trim();
             if (jsonStr.startsWith('```json')) {
               jsonStr = jsonStr.replace(/^```json/, '').replace(/```$/, '').trim();
@@ -395,22 +378,31 @@ ${JSON.stringify(inputData)}`,
               });
             }
           }
+
           console.log(`[Transcript] ✅ Chunk ${currentChunkNum} / ${totalChunks} completed.`);
         } catch (geminiError) {
           console.error(`[Transcript] ❌ Gemma refinement failed for chunk ${currentChunkNum}:`, geminiError.message);
-          // エラーが出ても止まらないように元のテキストを維持して次へ
         }
       }
     }
 
-    db.run(
-      'UPDATE episodes SET transcript = ?, transcriptStatus = ? WHERE id = ?',
-      [JSON.stringify(utterances), 'completed', episodeId],
-      (err) => {
-        if (err) console.error('[Transcript] DB Update Error:', err.message);
-        else console.log(`[Transcript] ✨ Successfully completed for episode ID: ${episodeId}`);
-      }
-    );
+    // transcript はファイル保存、DBはステータスのみ
+    try {
+      const transcriptPath = getTranscriptPath(episodeId);
+      writeJsonAtomic(transcriptPath, utterances);
+
+      db.run(
+        'UPDATE episodes SET transcriptStatus = ? WHERE id = ?',
+        ['completed', episodeId],
+        (err) => {
+          if (err) console.error('[Transcript] DB Update Error:', err.message);
+          else console.log(`[Transcript] ✨ Successfully completed for episode ID: ${episodeId}`);
+        }
+      );
+    } catch (fileErr) {
+      console.error('[Transcript] File Save Error:', fileErr.message);
+      db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['failed', episodeId]);
+    }
 
   } catch (error) {
     console.error(`[Transcript] ❌ Global Error on episode ID ${episodeId}:`, error.message);
