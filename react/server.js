@@ -52,6 +52,11 @@ const dataDir = path.resolve(__dirname, '../../data');
 const audioDir = path.join(dataDir, 'audio');
 const uploadsDir = path.join(dataDir, 'uploads');
 const dbPath = path.join(dataDir, 'episodes.db');
+const episodesDir = path.join(dataDir, 'episodes');
+
+if (!fs.existsSync(episodesDir)) {
+  fs.mkdirSync(episodesDir, { recursive: true });
+}
 
 if (!fs.existsSync(audioDir)) {
   fs.mkdirSync(audioDir, { recursive: true });
@@ -311,19 +316,30 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // ============ バックグラウンド文字起こし関数 ============
-// ============ バックグラウンド文字起こし関数 ============
 async function startTranscription(episodeId, filepath) {
   if (!aaiClient) return;
 
   db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['processing', episodeId]);
   console.log(`[Transcript] Started processing for episode ID: ${episodeId}`);
 
-  try {
-    const transcript = await aaiClient.transcripts.transcribe({
-      audio: filepath,
-      speaker_labels: true,
-      language_code: 'ja',
-    });
+    // 旧: DBに transcript 本体を保存
+    // 新: エピソードごとの transcript.json に保存
+    try {
+      const transcriptPath = getTranscriptPath(episodeId);
+      writeJsonAtomic(transcriptPath, utterances);
+
+      db.run(
+        'UPDATE episodes SET transcriptStatus = ? WHERE id = ?',
+        ['completed', episodeId],
+        (err) => {
+          if (err) console.error('[Transcript] DB Update Error:', err.message);
+          else console.log(`[Transcript] ✨ Successfully completed for episode ID: ${episodeId}`);
+        }
+      );
+    } catch (fileErr) {
+      console.error('[Transcript] File Save Error:', fileErr.message);
+      db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['failed', episodeId]);
+    }
 
     // u.text の空白を正規表現で削除
     const utterances = transcript.utterances?.map(u => ({
@@ -452,17 +468,12 @@ app.get('/audio/:filename', (req, res) => {
 
 app.get('/api/episodes', (req, res) => {
   db.all(
-    'SELECT id, title, description, filename, uploadedAt, transcript, transcriptStatus, slideshowConfig FROM episodes ORDER BY uploadedAt DESC',
+    'SELECT id, title, description, filename, uploadedAt, transcriptStatus FROM episodes ORDER BY uploadedAt DESC',
     (err, rows) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      const parsedRows = rows.map(row => ({
-        ...row,
-        transcript: row.transcript ? JSON.parse(row.transcript) : [],
-        slideshowConfig: row.slideshowConfig ? JSON.parse(row.slideshowConfig) : null
-      }));
-      res.json(parsedRows);
+      res.json(rows);
     }
   );
 });
@@ -473,6 +484,8 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   }
 
   const { title, description } = req.body;
+  const descriptionMarkdown = typeof description === 'string' ? description : '';
+  const descriptionPlain = stripMarkdown(descriptionMarkdown);
   const uploadedFilePath = path.join(audioDir, req.file.filename);
   const isZip = req.file.mimetype === 'application/zip' || req.file.mimetype === 'application/x-zip-compressed';
 
@@ -533,7 +546,7 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
 
     db.run(
       "INSERT INTO episodes (title, description, filename, transcriptStatus, slideshowConfig) VALUES (?, ?, ?, 'pending', ?)",
-      [title, description || '', audioFilename, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
+      [title, descriptionPlain, audioFilename, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
       function (err) {
         if (err) {
           const audioPath = path.join(audioDir, audioFilename);
@@ -543,10 +556,24 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
           return res.status(500).json({ error: err.message });
         }
 
+        // meta.json 保存（Markdownソース保持）
+        try {
+          ensureEpisodeDir(this.lastID);
+          writeJsonAtomic(getMetaPath(this.lastID), {
+            title,
+            descriptionMarkdown,
+            descriptionPlain,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (metaErr) {
+          console.error('[Upload] meta.json save failed:', metaErr.message);
+        }
+
         res.json({
           id: this.lastID,
           title,
-          description,
+          description: descriptionPlain,
+          descriptionMarkdown,
           filename: audioFilename,
           uploadedAt: new Date().toISOString(),
           transcriptStatus: 'pending',
@@ -592,6 +619,13 @@ app.delete('/api/episodes/:id', isAdmin, (req, res) => {
         }
       });
 
+      // 追加: エピソード個別データ削除
+      try {
+        fs.rmSync(getEpisodeDir(id), { recursive: true, force: true });
+      } catch (rmErr) {
+        console.error('Failed to delete episode dir:', rmErr.message);
+      }
+
       res.json({ message: 'Episode deleted' });
     });
   });
@@ -611,14 +645,6 @@ app.get('/api/episodes/:id', (req, res) => {
         return res.status(404).json({ error: 'Episode not found' });
       }
 
-      if (row.transcript) {
-        try {
-          row.transcript = JSON.parse(row.transcript);
-        } catch (e) {
-          row.transcript = [];
-        }
-      }
-
       if (row.slideshowConfig) {
         try {
           row.slideshowConfig = JSON.parse(row.slideshowConfig);
@@ -627,26 +653,55 @@ app.get('/api/episodes/:id', (req, res) => {
         }
       }
 
-      res.json(row);
+      const meta = readJsonSafe(getMetaPath(id), null);
+      const transcript = readJsonSafe(getTranscriptPath(id), []);
+
+      const merged = {
+        ...row,
+        title: meta?.title ?? row.title,
+        description: meta?.descriptionPlain ?? row.description,
+        descriptionMarkdown: meta?.descriptionMarkdown ?? row.description ?? '',
+        transcript
+      };
+
+      res.json(merged);
     }
   );
 });
 
 app.patch('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
-  const { title, description } = req.body;
+  const { title, description } = req.body; // description はMarkdownソースとして扱う
 
   if (!title) {
     return res.status(400).json({ error: 'Title is required' });
   }
 
+  const descriptionMarkdown = typeof description === 'string' ? description : '';
+  const descriptionPlain = stripMarkdown(descriptionMarkdown);
+
   db.run(
     'UPDATE episodes SET title = ?, description = ? WHERE id = ?',
-    [title, description || '', id],
+    [title, descriptionPlain, id],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
+
+      try {
+        ensureEpisodeDir(id);
+        const prev = readJsonSafe(getMetaPath(id), {}) || {};
+        writeJsonAtomic(getMetaPath(id), {
+          ...prev,
+          title,
+          descriptionMarkdown,
+          descriptionPlain,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (metaErr) {
+        console.error('[PATCH] meta.json save failed:', metaErr.message);
+      }
+
       res.json({ message: 'Episode updated' });
     }
   );
@@ -660,9 +715,16 @@ app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
     return res.status(400).json({ error: 'Transcript must be an array' });
   }
 
+  try {
+    ensureEpisodeDir(id);
+    writeJsonAtomic(getTranscriptPath(id), transcript);
+  } catch (fileErr) {
+    return res.status(500).json({ error: fileErr.message });
+  }
+
   db.run(
-    'UPDATE episodes SET transcript = ?, transcriptStatus = ? WHERE id = ?',
-    [JSON.stringify(transcript), 'completed', id],
+    'UPDATE episodes SET transcriptStatus = ? WHERE id = ?',
+    ['completed', id],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });
@@ -687,6 +749,56 @@ app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
     }
   );
 });
+
+function getEpisodeDir(id) {
+  return path.join(episodesDir, String(id));
+}
+
+function getMetaPath(id) {
+  return path.join(getEpisodeDir(id), 'meta.json');
+}
+
+function getTranscriptPath(id) {
+  return path.join(getEpisodeDir(id), 'transcript.json');
+}
+
+function ensureEpisodeDir(id) {
+  const dir = getEpisodeDir(id);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function readJsonSafe(filePath, fallback = null) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonAtomic(filePath, value) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${filePath}.tmp-${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf-8');
+  fs.renameSync(tmp, filePath);
+}
+
+// 軽量なMarkdown→プレーン変換（一覧キャッシュ用）
+function stripMarkdown(md = '') {
+  return String(md)
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+    .replace(/\[[^\]]+\]\([^)]+\)/g, '$1')
+    .replace(/^>\s?/gm, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/[*_~]/g, '')
+    .replace(/\n+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // ============ ユーティリティ関数 ============
 function extractZipAndGetConfig(zipFilePath) {
