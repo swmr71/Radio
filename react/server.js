@@ -410,6 +410,17 @@ ${JSON.stringify(inputData)}`
   }
 }
 
+// ============ ルートパラメータ検証 ============
+// :id はエピソードの主キー（正の整数）のみ許可する。
+// これを通さないと `..` などが getEpisodeDir() に渡り、data/episodes の外へ
+// 書き込み・削除できてしまう。
+app.param('id', (req, res, next, value) => {
+  if (!/^[1-9]\d*$/.test(value)) {
+    return res.status(400).json({ error: 'Invalid episode id' });
+  }
+  next();
+});
+
 // ============ ストリーミング対応：Range Request ハンドラ ============
 app.get('/audio/:filename', (req, res) => {
   const filename = req.params.filename;
@@ -743,7 +754,11 @@ app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
 });
 
 function getEpisodeDir(id) {
-  return path.join(episodesDir, String(id));
+  const safeId = String(id);
+  if (!/^[1-9]\d*$/.test(safeId)) {
+    throw new Error(`Invalid episode id: ${safeId}`);
+  }
+  return path.join(episodesDir, safeId);
 }
 
 function getMetaPath(id) {
