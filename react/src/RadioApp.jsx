@@ -384,6 +384,87 @@ export default function RadioApp() {
     }
   };
 
+  // 現在位置から相対シーク（±15秒スキップ、メディアキー用）
+  const seekBy = (deltaSeconds) => {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(audio.duration)) return;
+    const next = Math.min(Math.max(audio.currentTime + deltaSeconds, 0), audio.duration);
+    audio.currentTime = next;
+    setCurrentTime(next);
+  };
+
+  // ============ Media Session API ============
+  // ロック画面・通知領域・Bluetoothイヤホン・キーボードのメディアキーから
+  // 操作できるようにする。ハンドラは ref 経由で最新の関数を呼ぶので、
+  // 再生位置の更新のたびに登録し直す必要がない。
+  const mediaActionsRef = useRef({});
+  mediaActionsRef.current = { togglePlayPause, playNext, playPrev, seekBy };
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentEpisode) return;
+
+    navigator.mediaSession.metadata = new window.MediaMetadata({
+      title: currentEpisode.title,
+      artist: currentEpisode.description || 'オンデマンドラジオ',
+      album: 'オンデマンドラジオ',
+    });
+
+    const handlers = {
+      play: () => mediaActionsRef.current.togglePlayPause(),
+      pause: () => mediaActionsRef.current.togglePlayPause(),
+      previoustrack: () => mediaActionsRef.current.playPrev(),
+      nexttrack: () => mediaActionsRef.current.playNext(),
+      seekbackward: (details) => mediaActionsRef.current.seekBy(-(details?.seekOffset || 15)),
+      seekforward: (details) => mediaActionsRef.current.seekBy(details?.seekOffset || 15),
+      seekto: (details) => {
+        if (audioRef.current && typeof details?.seekTime === 'number') {
+          audioRef.current.currentTime = details.seekTime;
+          setCurrentTime(details.seekTime);
+        }
+      },
+    };
+
+    const registered = [];
+    for (const [action, handler] of Object.entries(handlers)) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+        registered.push(action);
+      } catch {
+        // ブラウザが未対応のアクションは黙って無視する
+      }
+    }
+
+    return () => {
+      for (const action of registered) {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch {
+          /* noop */
+        }
+      }
+    };
+  }, [currentEpisode?.id, currentEpisode?.title, currentEpisode?.description]);
+
+  // 再生/一時停止の状態とシークバー位置をOS側へ反映
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }, [isPlaying]);
+
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration,
+        position: Math.min(currentTime, duration),
+        playbackRate: audioRef.current?.playbackRate || 1,
+      });
+    } catch {
+      /* 位置情報の更新失敗は致命的ではない */
+    }
+  }, [currentTime, duration]);
+
   const handleDelete = async (id) => {
     // 権限チェック
     if (!isAdmin) {
