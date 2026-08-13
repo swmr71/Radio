@@ -27,6 +27,8 @@ import { UserMenu } from './UserMenu';
 import { EditEpisodeModal } from './EditEpisodeModal';
 import { usePersistedState, setOfIds, readStored, writeStored } from './usePersistedState';
 
+const PLAYBACK_RATES = [1, 1.25, 1.5, 2];
+
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
   const [filteredEpisodes, setFilteredEpisodes] = useState([]);
@@ -41,6 +43,7 @@ export default function RadioApp() {
   const [duration, setDuration] = useState(0);
   const [repeatMode, setRepeatMode] = usePersistedState('repeatMode', 'none');
   const [isShuffle, setIsShuffle] = usePersistedState('shuffle', false);
+  const [playbackRate, setPlaybackRate] = usePersistedState('playbackRate', 1);
   const [favorites, setFavorites] = usePersistedState('favorites', new Set(), setOfIds);
   const [currentPage, setCurrentPage] = useState('browse');
   const [playlists, setPlaylists] = usePersistedState('playlists', [
@@ -444,6 +447,13 @@ export default function RadioApp() {
       playNext();
     }
   };
+
+  // 再生速度は audio 要素の属性なので、要素の差し替え（曲切り替え）後にも再適用する
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate, currentEpisode?.id]);
 
   // 現在位置から相対シーク（±15秒スキップ、メディアキー用）
   const seekBy = (deltaSeconds) => {
@@ -1319,6 +1329,30 @@ export default function RadioApp() {
                   </button>
                 </div>
 
+                {/* 15秒スキップ + 再生速度 */}
+                <div style={styles.secondaryControls}>
+                  <button onClick={() => seekBy(-15)} style={styles.secondaryButton} title="15秒戻る (←は10秒)">
+                    « 15秒
+                  </button>
+                  <div style={styles.speedGroup}>
+                    {PLAYBACK_RATES.map((rate) => (
+                      <button
+                        key={rate}
+                        onClick={() => setPlaybackRate(rate)}
+                        style={{
+                          ...styles.speedButton,
+                          ...(playbackRate === rate ? styles.speedButtonActive : {}),
+                        }}
+                      >
+                        {rate}x
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => seekBy(15)} style={styles.secondaryButton} title="15秒進む (→は10秒)">
+                    15秒 »
+                  </button>
+                </div>
+
                 <p style={styles.repeatModeLabel}>
                   {repeatMode === 'none' && 'リピート: オフ'}
                   {repeatMode === 'all' && 'リピート: すべて'}
@@ -1967,6 +2001,46 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  secondaryControls: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.75rem',
+    flexWrap: 'wrap',
+    marginTop: '0.75rem',
+  },
+  secondaryButton: {
+    padding: '0.35rem 0.7rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    color: '#4b5563',
+    backgroundColor: '#f3f4f6',
+    border: 'none',
+    borderRadius: '999px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  speedGroup: {
+    display: 'flex',
+    gap: '0.25rem',
+    backgroundColor: '#f3f4f6',
+    borderRadius: '999px',
+    padding: '0.2rem',
+  },
+  speedButton: {
+    padding: '0.25rem 0.6rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    color: '#6b7280',
+    backgroundColor: 'transparent',
+    border: 'none',
+    borderRadius: '999px',
+    cursor: 'pointer',
+  },
+  speedButtonActive: {
+    backgroundColor: '#4f46e5',
+    color: '#fff',
   },
   deleteBtn: {
     width: '36px',
