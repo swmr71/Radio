@@ -142,8 +142,15 @@ export default function RadioApp() {
   const fetchEpisodes = async () => {
     try {
       const res = await fetch('/api/episodes');
+
+      // セッション切れ。リロードすると AuthProvider がログイン画面を出す。
+      if (res.status === 401) {
+        window.location.reload();
+        return;
+      }
+
       const data = await res.json();
-      
+
       // 時間制限エラーのチェック
       if (res.status === 403 && data.isTimeRestricted) {
         setTimeRestrictedMessage(data.error);

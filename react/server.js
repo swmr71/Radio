@@ -180,7 +180,8 @@ db.serialize(() => {
 // ============ Express ミドルウェア設定 ============
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/uploads', express.static(uploadsDir));
+// /uploads（スライド画像）は認証チェックが必要なので、passport 初期化より後
+// （下の「保護されたコンテンツ」セクション）で登録する。
 
 // ============ セッションストア（SQLite） ============
 // 既定の MemoryStore はプロセス再起動で全セッションが消える。docker-compose 側が
@@ -365,6 +366,10 @@ const isAdmin = (req, res, next) => {
     res.status(403).json({ error: 'Forbidden: Admin role required' });
   }
 };
+
+// ============ 保護されたコンテンツ ============
+// スライド画像はエピソード本文の一部なので、音声と同じくログイン必須にする。
+app.use('/uploads', isAuthenticated, express.static(uploadsDir));
 
 // ============ 利用時間制限ミドルウェア ============
 const checkTimeRestriction = (req, res, next) => {
@@ -610,7 +615,7 @@ const AUDIO_MIME_TYPES = {
   '.webm': 'audio/webm',
 };
 
-app.get('/audio/:filename', (req, res) => {
+app.get('/audio/:filename', isAuthenticated, (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(audioDir, filename);
 
@@ -675,7 +680,7 @@ app.get('/audio/:filename', (req, res) => {
 
 // ============ API Endpoints ============
 
-app.get('/api/episodes', (req, res) => {
+app.get('/api/episodes', isAuthenticated, (req, res) => {
   db.all(
     'SELECT id, title, description, filename, uploadedAt, transcriptStatus FROM episodes ORDER BY uploadedAt DESC',
     (err, rows) => {
@@ -844,7 +849,7 @@ app.delete('/api/episodes/:id', isAdmin, (req, res) => {
   });
 });
 
-app.get('/api/episodes/:id', (req, res) => {
+app.get('/api/episodes/:id', isAuthenticated, (req, res) => {
   const { id } = req.params;
 
   db.get(
