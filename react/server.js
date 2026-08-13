@@ -753,9 +753,13 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
       console.log(`[Upload] ZIP extracted: ${audioFilename}`);
     }
 
+    // ASSEMBLYAI_API_KEY が無いと文字起こしは走らない。'pending' のまま入れると
+    // 永久に「書き起こし待機中」バッジが出て、フロントが5秒ポーリングを続ける。
+    const initialTranscriptStatus = aaiClient ? 'pending' : 'none';
+
     db.run(
-      "INSERT INTO episodes (title, description, filename, transcriptStatus, slideshowConfig) VALUES (?, ?, ?, 'pending', ?)",
-      [title, descriptionPlain, audioFilename, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
+      'INSERT INTO episodes (title, description, filename, transcriptStatus, slideshowConfig) VALUES (?, ?, ?, ?, ?)',
+      [title, descriptionPlain, audioFilename, initialTranscriptStatus, slideshowConfig ? JSON.stringify(slideshowConfig) : null],
       function (err) {
         if (err) {
           const audioPath = path.join(audioDir, audioFilename);
@@ -785,7 +789,7 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
           descriptionMarkdown,
           filename: audioFilename,
           uploadedAt: new Date().toISOString(),
-          transcriptStatus: 'pending',
+          transcriptStatus: initialTranscriptStatus,
           slideshowConfig: slideshowConfig || null
         });
 
