@@ -526,6 +526,54 @@ export default function RadioApp() {
     }
   }, [currentTime, duration]);
 
+  // ============ キーボードショートカット ============
+  useEffect(() => {
+    const isTypingTarget = (el) =>
+      el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+    const onKeyDown = (e) => {
+      // 入力中・モーダル表示中・修飾キー併用時は何もしない
+      if (isTypingTarget(e.target) || showEditModal) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const actions = mediaActionsRef.current;
+
+      switch (e.key) {
+        case ' ':
+          if (!currentEpisode) return;
+          e.preventDefault();
+          actions.togglePlayPause();
+          break;
+        case 'ArrowLeft':
+          if (!currentEpisode) return;
+          e.preventDefault();
+          actions.seekBy(-10);
+          break;
+        case 'ArrowRight':
+          if (!currentEpisode) return;
+          e.preventDefault();
+          actions.seekBy(10);
+          break;
+        case 'n':
+        case 'N':
+          actions.playNext();
+          break;
+        case 'p':
+        case 'P':
+          actions.playPrev();
+          break;
+        case 'Escape':
+          setPlayerExpanded(false);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [currentEpisode?.id, showEditModal]);
+
   const handleDelete = async (id) => {
     // 権限チェック
     if (!isAdmin) {
