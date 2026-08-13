@@ -25,7 +25,7 @@ import { SlideshowDisplay } from './SlideshowDisplay';
 import { useAuth } from './AuthProvider';
 import { UserMenu } from './UserMenu';
 import { EditEpisodeModal } from './EditEpisodeModal';
-import { usePersistedState, setOfIds } from './usePersistedState';
+import { usePersistedState, setOfIds, readStored, writeStored } from './usePersistedState';
 
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
@@ -63,6 +63,9 @@ export default function RadioApp() {
   const audioRef = useRef(null);
   const fileInputRef = useRef(null);
   const uploadStartTimeRef = useRef(null);
+  // { [episodeId]: 秒 } 形式の再生位置。localStorage から復元する。
+  const playbackPositionsRef = useRef(readStored('positions', {}) || {});
+  const lastSavedPositionRef = useRef(0);
 
   useEffect(() => {
     fetchEpisodes();
@@ -277,17 +280,68 @@ export default function RadioApp() {
     }
   };
 
+  // ============ 再生位置の記憶（続きから再生） ============
+  // 冒頭10秒未満と、終盤15秒以内は「聴き終わった」とみなして保存しない。
+  const RESUME_MIN_SECONDS = 10;
+  const RESUME_TAIL_MARGIN = 15;
+
+  const savePosition = (episodeId, seconds) => {
+    if (!episodeId) return;
+    const positions = playbackPositionsRef.current;
+    if (seconds > RESUME_MIN_SECONDS) {
+      positions[episodeId] = seconds;
+    } else {
+      delete positions[episodeId];
+    }
+    writeStored('positions', positions);
+  };
+
   const handleTimeUpdate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime);
+    if (!audioRef.current) return;
+    const time = audioRef.current.currentTime;
+    setCurrentTime(time);
+
+    // localStorage への書き込みは5秒に1回に間引く
+    if (currentEpisode && Math.abs(time - lastSavedPositionRef.current) >= 5) {
+      lastSavedPositionRef.current = time;
+      savePosition(currentEpisode.id, time);
     }
   };
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current) {
-      setDuration(audioRef.current.duration);
+    const audio = audioRef.current;
+    if (!audio) return;
+    setDuration(audio.duration);
+
+    const saved = playbackPositionsRef.current[currentEpisode?.id];
+    if (
+      saved &&
+      Number.isFinite(audio.duration) &&
+      saved > RESUME_MIN_SECONDS &&
+      saved < audio.duration - RESUME_TAIL_MARGIN &&
+      audio.currentTime < 1
+    ) {
+      audio.currentTime = saved;
+      setCurrentTime(saved);
+      lastSavedPositionRef.current = saved;
     }
   };
+
+  // タブを閉じる / バックグラウンドに送る直前にも位置を書き出す
+  useEffect(() => {
+    const flush = () => {
+      if (currentEpisode && audioRef.current) {
+        savePosition(currentEpisode.id, audioRef.current.currentTime);
+      }
+    };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+      flush();
+    };
+  }, [currentEpisode?.id]);
 
   const handleSeek = (e) => {
     const time = parseFloat(e.target.value);
@@ -374,6 +428,13 @@ export default function RadioApp() {
   };
 
   const handleEnded = () => {
+    // 最後まで聴いたので「続きから」の記録は破棄する
+    if (currentEpisode) {
+      delete playbackPositionsRef.current[currentEpisode.id];
+      writeStored('positions', playbackPositionsRef.current);
+      lastSavedPositionRef.current = 0;
+    }
+
     if (repeatMode === 'one') {
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
