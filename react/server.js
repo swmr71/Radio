@@ -16,7 +16,8 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.PORT) || 3001;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
 // プロキシを許可
 app.enable('trust proxy'); 
@@ -930,6 +931,12 @@ function normalizeSlideshowConfig(rawConfig, imageMap) {
   }));
 }
 
+// API/認証系の未定義ルートは SPA の index.html ではなく JSON 404 を返す
+// （fetch 側が HTML を JSON.parse して意味不明なエラーになるのを防ぐ）
+app.use(['/api', '/auth', '/audio', '/uploads'], (req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
 // SPA用のフォールバック
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
@@ -937,8 +944,31 @@ app.get('*', (req, res) => {
 
 // エラーハンドリング
 app.use((err, req, res, next) => {
-  console.error('Error:', err.message);
-  res.status(500).json({ error: err.message });
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  let status = err.status || err.statusCode || 500;
+  let message = err.message;
+
+  // multer のエラーをクライアントが解釈できるステータスへ変換する
+  if (err instanceof multer.MulterError) {
+    status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      message = 'ファイルサイズが上限（500MB）を超えています';
+    }
+  } else if (/Invalid file type/.test(message || '')) {
+    status = 400;
+  }
+
+  console.error(`Error: ${req.method} ${req.originalUrl} -> ${status}: ${err.message}`);
+
+  // 500 系の詳細（スタックやパス）はクライアントへ出さない
+  if (status >= 500 && IS_PRODUCTION) {
+    message = 'Internal server error';
+  }
+
+  res.status(status).json({ error: message });
 });
 
 // サーバー起動
