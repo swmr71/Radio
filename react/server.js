@@ -142,6 +142,23 @@ db.serialize(() => {
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  // 一覧は uploadedAt DESC で引くのでインデックスを張る
+  db.run('CREATE INDEX IF NOT EXISTS idx_episodes_uploadedAt ON episodes (uploadedAt DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_sessions_expiresAt ON sessions (expiresAt)');
+
+  // 文字起こし中にプロセスが落ちると transcriptStatus が pending/processing のまま
+  // 残り、フロントが永久に5秒ポーリングを続けてしまう。起動時に failed へ倒す。
+  db.run(
+    "UPDATE episodes SET transcriptStatus = 'failed' WHERE transcriptStatus IN ('pending', 'processing')",
+    function (err) {
+      if (err) {
+        console.error('[Startup] Failed to reset stale transcript status:', err.message);
+      } else if (this.changes > 0) {
+        console.warn(`⚠️ Reset ${this.changes} interrupted transcription job(s) to "failed".`);
+      }
+    }
+  );
 });
 
 // ============ Express ミドルウェア設定 ============
