@@ -315,8 +315,14 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
         return done(null, false, { message: 'Email not allowed' });
       }
 
+      // INSERT OR REPLACE は行を削除してから挿入するため、ログインのたびに
+      // users.id と createdAt がリセットされていた。UPSERT に置き換える。
       db.run(
-        'INSERT OR REPLACE INTO users (googleId, email, displayName, role) VALUES (?, ?, ?, ?)',
+        `INSERT INTO users (googleId, email, displayName, role) VALUES (?, ?, ?, ?)
+         ON CONFLICT(googleId) DO UPDATE SET
+           email = excluded.email,
+           displayName = excluded.displayName,
+           role = excluded.role`,
         [googleId, email, displayName, role],
         function(err) {
           if (err) {
