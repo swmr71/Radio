@@ -25,6 +25,7 @@ import { SlideshowDisplay } from './SlideshowDisplay';
 import { useAuth } from './AuthProvider';
 import { UserMenu } from './UserMenu';
 import { EditEpisodeModal } from './EditEpisodeModal';
+import { usePersistedState, setOfIds } from './usePersistedState';
 
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
@@ -38,11 +39,11 @@ export default function RadioApp() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [repeatMode, setRepeatMode] = useState('none');
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [favorites, setFavorites] = useState(new Set());
+  const [repeatMode, setRepeatMode] = usePersistedState('repeatMode', 'none');
+  const [isShuffle, setIsShuffle] = usePersistedState('shuffle', false);
+  const [favorites, setFavorites] = usePersistedState('favorites', new Set(), setOfIds);
   const [currentPage, setCurrentPage] = useState('browse');
-  const [playlists, setPlaylists] = useState([
+  const [playlists, setPlaylists] = usePersistedState('playlists', [
     { id: 1, name: 'マイベスト', color: '#ec4899', episodeIds: [] },
   ]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState(null);
