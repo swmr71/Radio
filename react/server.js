@@ -1138,15 +1138,42 @@ app.use((err, req, res, next) => {
 });
 
 // サーバー起動
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`📻 Radio server running on port ${PORT} (0.0.0.0)`);
   console.log(`📁 Audio files stored in: ${audioDir}`);
   console.log(`💾 Database: ${dbPath}`);
   console.log(`🔐 Google OAuth: ${GOOGLE_CLIENT_ID ? 'Enabled' : 'Disabled'}`);
 });
 
-process.on('SIGINT', () => {
-  console.log('Shutting down...');
-  db.close();
-  process.exit(0);
+// ============ グレースフルシャットダウン ============
+// Docker が送るのは SIGTERM。ハンドラが無いと即死して再生中のレスポンスが切れ、
+// SQLite も閉じられないまま終了していた。
+let shuttingDown = false;
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n${signal} received. Shutting down gracefully...`);
+
+  // 接続を捌ききれない場合の保険（10秒で強制終了）
+  const forceExit = setTimeout(() => {
+    console.warn('Forcing shutdown after timeout.');
+    process.exit(1);
+  }, 10000);
+  forceExit.unref();
+
+  server.close(() => {
+    db.close((err) => {
+      if (err) console.error('DB close error:', err.message);
+      console.log('Shutdown complete.');
+      process.exit(0);
+    });
+  });
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
 });
