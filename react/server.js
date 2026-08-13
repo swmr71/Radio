@@ -54,7 +54,11 @@ if (!geminiApiKey) {
 const geminiClient = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey }) : null;
 
 // ディレクトリ設定
-const dataDir = path.resolve(__dirname, '../../data');
+// 既定は ../../data（Docker では /data のボリューム）。ローカル開発など
+// リポジトリ外に書き込みたくない場合は DATA_DIR で差し替えられる。
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.resolve(__dirname, '../../data');
 
 const audioDir = path.join(dataDir, 'audio');
 const uploadsDir = path.join(dataDir, 'uploads');
