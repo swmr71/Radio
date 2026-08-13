@@ -422,13 +422,31 @@ app.param('id', (req, res, next, value) => {
 });
 
 // ============ ストリーミング対応：Range Request ハンドラ ============
+const AUDIO_MIME_TYPES = {
+  '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.wav': 'audio/wav',
+  '.ogg': 'audio/ogg',
+  '.oga': 'audio/ogg',
+  '.opus': 'audio/opus',
+  '.flac': 'audio/flac',
+  '.webm': 'audio/webm',
+};
+
 app.get('/audio/:filename', (req, res) => {
   const filename = req.params.filename;
   const filepath = path.join(audioDir, filename);
 
-  if (!path.resolve(filepath).startsWith(path.resolve(audioDir))) {
+  // path.relative() で比較する。startsWith() だけだと "…/audio-backup" のような
+  // 兄弟ディレクトリが接頭辞一致で通ってしまう。
+  const relative = path.relative(audioDir, filepath);
+  if (relative.startsWith('..') || path.isAbsolute(relative) || relative.includes(path.sep)) {
     return res.status(403).json({ error: 'Access denied' });
   }
+
+  const contentType = AUDIO_MIME_TYPES[path.extname(filename).toLowerCase()] || 'application/octet-stream';
 
   fs.stat(filepath, (err, stats) => {
     if (err || !stats.isFile()) {
@@ -438,30 +456,43 @@ app.get('/audio/:filename', (req, res) => {
     const fileSize = stats.size;
     const range = req.headers.range;
 
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    res.set('Accept-Ranges', 'bytes');
+    res.set('Content-Type', contentType);
+    // 音声ファイルは内容不変（更新時は新しいファイル名になる）ため長期キャッシュ可
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.set('Last-Modified', stats.mtime.toUTCString());
 
-      if (start >= fileSize) {
-        res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
-        return;
+    if (range) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(range.trim());
+      if (!match || (!match[1] && !match[2])) {
+        return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
       }
 
-      const chunksize = end - start + 1;
+      let start;
+      let end;
+      if (match[1]) {
+        start = parseInt(match[1], 10);
+        end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
+      } else {
+        // suffix range: 末尾 N バイト
+        start = Math.max(fileSize - parseInt(match[2], 10), 0);
+        end = fileSize - 1;
+      }
+
+      end = Math.min(end, fileSize - 1);
+
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= fileSize) {
+        return res.status(416).set('Content-Range', `bytes */${fileSize}`).end();
+      }
 
       res.status(206);
       res.set('Content-Range', `bytes ${start}-${end}/${fileSize}`);
-      res.set('Accept-Ranges', 'bytes');
-      res.set('Content-Length', chunksize);
-      res.set('Content-Type', 'audio/mpeg');
-      
+      res.set('Content-Length', end - start + 1);
+
       fs.createReadStream(filepath, { start, end }).pipe(res);
     } else {
-      res.set('Accept-Ranges', 'bytes');
       res.set('Content-Length', fileSize);
-      res.set('Content-Type', 'audio/mpeg');
-      
+
       fs.createReadStream(filepath).pipe(res);
     }
   });
