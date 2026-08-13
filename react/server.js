@@ -819,10 +819,41 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   }
 });
 
+// slideshowConfig が参照している /uploads の画像を削除する。
+// ZIP から展開した画像はエピソード削除時に消える先が無く、data/uploads に
+// 溜まり続けていた（1エピソードあたり数十枚になることもある）。
+function deleteSlideshowImages(slideshowConfigJson) {
+  if (!slideshowConfigJson) return;
+
+  let slides;
+  try {
+    slides = JSON.parse(slideshowConfigJson);
+  } catch {
+    return;
+  }
+  if (!Array.isArray(slides)) return;
+
+  for (const slide of slides) {
+    const image = slide?.image;
+    if (typeof image !== 'string' || !image.startsWith('/uploads/')) continue;
+
+    const name = path.basename(image);
+    const imagePath = path.join(uploadsDir, name);
+    // uploadsDir の直下だけを対象にする
+    if (path.dirname(imagePath) !== path.resolve(uploadsDir)) continue;
+
+    fs.unlink(imagePath, (err) => {
+      if (err && err.code !== 'ENOENT') {
+        console.error('Failed to delete slide image:', name, err.message);
+      }
+    });
+  }
+}
+
 app.delete('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
 
-  db.get('SELECT filename FROM episodes WHERE id = ?', [id], (err, row) => {
+  db.get('SELECT filename, slideshowConfig FROM episodes WHERE id = ?', [id], (err, row) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -842,6 +873,8 @@ app.delete('/api/episodes/:id', isAdmin, (req, res) => {
           console.error('Failed to delete file:', unlinkErr);
         }
       });
+
+      deleteSlideshowImages(row.slideshowConfig);
 
       // 追加: エピソード個別データ削除
       try {
