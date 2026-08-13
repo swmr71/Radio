@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Play,
   Pause,
@@ -31,7 +31,6 @@ const PLAYBACK_RATES = [1, 1.25, 1.5, 2];
 
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
-  const [filteredEpisodes, setFilteredEpisodes] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadFile, setUploadFile] = useState(null);
   const [episodeTitle, setEpisodeTitle] = useState('');
@@ -75,18 +74,28 @@ export default function RadioApp() {
   }, []);
 
   // 文字起こし中のエピソード（pending / processing）がある場合、5秒おきに自動更新（ポーリング）
-  useEffect(() => {
-    const hasProcessing = episodes.some(
-      (ep) => ep.transcriptStatus === 'pending' || ep.transcriptStatus === 'processing'
-    );
-    if (hasProcessing) {
-      const interval = setInterval(fetchEpisodes, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [episodes]);
+  const hasProcessingEpisode = episodes.some(
+    (ep) => ep.transcriptStatus === 'pending' || ep.transcriptStatus === 'processing'
+  );
 
   useEffect(() => {
-    filterEpisodes();
+    if (!hasProcessingEpisode) return;
+    // 依存を boolean にしているので、ポーリング結果で episodes が入れ替わっても
+    // タイマーは張り替えられない（以前は5秒ごとに setInterval を作り直していた）。
+    const interval = setInterval(() => fetchEpisodesRef.current(), 5000);
+    return () => clearInterval(interval);
+  }, [hasProcessingEpisode]);
+
+  // 検索結果は episodes / searchQuery から導出できるので state を持たない。
+  // （以前は useEffect + setState で1フレーム遅れて反映されていた）
+  const filteredEpisodes = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return episodes;
+    return episodes.filter(
+      (ep) =>
+        ep.title.toLowerCase().includes(query) ||
+        ep.description?.toLowerCase().includes(query)
+    );
   }, [episodes, searchQuery]);
 
   useEffect(() => {
@@ -184,15 +193,9 @@ export default function RadioApp() {
     }
   };
 
-  const filterEpisodes = () => {
-    const query = searchQuery.toLowerCase();
-    const filtered = episodes.filter(
-      (ep) =>
-        ep.title.toLowerCase().includes(query) ||
-        ep.description?.toLowerCase().includes(query)
-    );
-    setFilteredEpisodes(filtered);
-  };
+  // ポーリング用に最新の fetchEpisodes を保持（タイマー再生成を避けるため）
+  const fetchEpisodesRef = useRef(fetchEpisodes);
+  fetchEpisodesRef.current = fetchEpisodes;
 
   const handleUpload = async (e) => {
     if (e) e.preventDefault();
