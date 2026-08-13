@@ -25,7 +25,13 @@ app.enable('trust proxy');
 // ============ 認証設定 ============
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-this';
+// 本番でシークレット未設定のまま起動すると、既知の固定値でセッションCookieを
+// 偽造できてしまう（= 誰でも admin になりうる）。起動時に落とす。
+if (IS_PRODUCTION && !process.env.SESSION_SECRET) {
+  console.error('❌ FATAL: SESSION_SECRET must be set when NODE_ENV=production.');
+  process.exit(1);
+}
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-secret';
 const ALLOWED_ADMIN_EMAILS = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').filter(Boolean);
 const ALLOWED_VIEWER_EMAILS = (process.env.ALLOWED_VIEWER_EMAILS || '').split(',').filter(Boolean);
 
@@ -132,12 +138,16 @@ app.use('/uploads', express.static(uploadsDir));
 
 // Session 設定
 app.use(session({
+  name: 'radio.sid',
   secret: SESSION_SECRET,
   resave: false,
-  saveUninitialized: true,
+  // 未ログインの訪問者ごとにセッションを作らない（メモリストアの肥大化を防ぐ）
+  saveUninitialized: false,
+  rolling: true,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: IS_PRODUCTION,
     httpOnly: true,
+    sameSite: 'lax',
     maxAge: 24 * 60 * 60 * 1000 // 24時間
   }
 }));
