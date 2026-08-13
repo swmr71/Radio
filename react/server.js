@@ -437,8 +437,18 @@ app.get('/auth/logout', (req, res) => {
 });
 
 // ============ バックグラウンド文字起こし関数 ============
+// 実行中のジョブ（同一エピソードの二重起動を防ぐ）
+const runningTranscriptions = new Set();
+
 async function startTranscription(episodeId, filepath) {
   if (!aaiClient) return;
+
+  const key = String(episodeId);
+  if (runningTranscriptions.has(key)) {
+    console.warn(`[Transcript] Job for episode ${episodeId} is already running; skipped.`);
+    return;
+  }
+  runningTranscriptions.add(key);
 
   db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['processing', episodeId]);
   console.log(`[Transcript] Started processing for episode ID: ${episodeId}`);
@@ -528,6 +538,8 @@ ${JSON.stringify(inputData)}`
   } catch (error) {
     console.error(`[Transcript] ❌ Global Error on episode ID ${episodeId}:`, error.message);
     db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['failed', episodeId]);
+  } finally {
+    runningTranscriptions.delete(key);
   }
 }
 
@@ -887,6 +899,40 @@ app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
       res.json({ message: 'Transcript updated' });
     }
   );
+});
+
+// 文字起こしのやり直し（API障害やプロセス再起動で failed になったエピソード用）
+app.post('/api/episodes/:id/transcribe', isAdmin, (req, res) => {
+  const { id } = req.params;
+
+  if (!aaiClient) {
+    return res.status(503).json({ error: 'ASSEMBLYAI_API_KEY が未設定のため文字起こしを実行できません' });
+  }
+
+  db.get('SELECT filename, transcriptStatus FROM episodes WHERE id = ?', [id], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Episode not found' });
+    }
+    if (row.transcriptStatus === 'processing' || runningTranscriptions.has(String(id))) {
+      return res.status(409).json({ error: '既に文字起こし処理中です' });
+    }
+
+    const audioFilePath = path.join(audioDir, row.filename);
+    if (!fs.existsSync(audioFilePath)) {
+      return res.status(404).json({ error: '音声ファイルが見つかりません' });
+    }
+
+    db.run('UPDATE episodes SET transcriptStatus = ? WHERE id = ?', ['pending', id], (updateErr) => {
+      if (updateErr) {
+        return res.status(500).json({ error: updateErr.message });
+      }
+      res.json({ message: 'Transcription restarted', transcriptStatus: 'pending' });
+      startTranscription(id, audioFilePath);
+    });
+  });
 });
 
 app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
