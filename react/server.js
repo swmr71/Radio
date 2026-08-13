@@ -35,8 +35,24 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-only-insecure-secret';
 const ALLOWED_ADMIN_EMAILS = (process.env.ALLOWED_ADMIN_EMAILS || '').split(',').filter(Boolean);
 const ALLOWED_VIEWER_EMAILS = (process.env.ALLOWED_VIEWER_EMAILS || '').split(',').filter(Boolean);
 
+// OAuth 未設定 かつ 非本番のときだけ、ログイン無しで管理者として動かす。
+// NODE_ENV=production では（docker-compose がそう設定している）決して有効にならない。
+const DEV_AUTH_BYPASS = !IS_PRODUCTION && (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET);
+
+const DEV_USER = {
+  googleId: 'dev-local',
+  email: 'dev@localhost',
+  displayName: '開発ユーザー (認証バイパス)',
+  role: 'admin',
+};
+
 if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-  console.warn('⚠️ WARNING: Google OAuth credentials not set. Authentication will be disabled.');
+  if (DEV_AUTH_BYPASS) {
+    console.warn('⚠️ Google OAuth 未設定のため、開発用の認証バイパスを有効にしました（admin 相当）。');
+    console.warn('   本番では NODE_ENV=production により自動的に無効化されます。');
+  } else {
+    console.warn('⚠️ WARNING: Google OAuth credentials not set. Nobody will be able to log in.');
+  }
 }
 
 // AssemblyAI初期化
@@ -321,6 +337,15 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
       if (err) return done(err);
       done(null, user);
     });
+  });
+}
+
+// 開発バイパス時は全リクエストに開発ユーザーを載せる
+if (DEV_AUTH_BYPASS) {
+  app.use((req, res, next) => {
+    req.user = DEV_USER;
+    req.isAuthenticated = () => true;
+    next();
   });
 }
 
