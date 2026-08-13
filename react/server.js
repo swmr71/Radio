@@ -397,6 +397,23 @@ const checkTimeRestriction = (req, res, next) => {
   next();
 };
 
+// ヘルスチェック（時間制限ミドルウェアより前に置く。利用時間外でもコンテナは
+// 健全なので、403 で unhealthy 扱いにされて再起動ループに入るのを避ける）
+app.get('/api/health', (req, res) => {
+  db.get('SELECT 1 AS ok', (err) => {
+    if (err) {
+      return res.status(503).json({ status: 'error', database: 'unavailable' });
+    }
+    res.json({
+      status: 'ok',
+      uptime: Math.round(process.uptime()),
+      database: 'ok',
+      transcription: aaiClient ? 'enabled' : 'disabled',
+      auth: GOOGLE_CLIENT_ID ? 'enabled' : 'disabled',
+    });
+  });
+});
+
 app.use(checkTimeRestriction);
 
 // ============ 認証エンドポイント ============
