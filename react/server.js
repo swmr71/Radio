@@ -118,6 +118,15 @@ db.serialize(() => {
     )
   `);
 
+  // セッション永続化テーブル（下の SQLiteSessionStore が使用）
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      sid TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      expiresAt INTEGER NOT NULL
+    )
+  `);
+
   // ユーザー情報テーブル
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
@@ -136,8 +145,88 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dist')));
 app.use('/uploads', express.static(uploadsDir));
 
+// ============ セッションストア（SQLite） ============
+// 既定の MemoryStore はプロセス再起動で全セッションが消える。docker-compose 側が
+// restart: always なので、コンテナが落ちるたび全員ログアウトになっていた。
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+class SQLiteSessionStore extends session.Store {
+  constructor(database) {
+    super();
+    this.db = database;
+    // 期限切れセッションの定期削除（1時間毎）
+    this.cleanupTimer = setInterval(() => this.cleanup(), 60 * 60 * 1000);
+    this.cleanupTimer.unref();
+  }
+
+  cleanup() {
+    this.db.run('DELETE FROM sessions WHERE expiresAt <= ?', [Date.now()], (err) => {
+      if (err) console.error('[Session] cleanup failed:', err.message);
+    });
+  }
+
+  #expiry(sess) {
+    const cookieExpires = sess?.cookie?.expires;
+    if (cookieExpires) return new Date(cookieExpires).getTime();
+    return Date.now() + SESSION_TTL_MS;
+  }
+
+  get(sid, callback) {
+    this.db.get('SELECT data, expiresAt FROM sessions WHERE sid = ?', [sid], (err, row) => {
+      if (err) return callback(err);
+      if (!row) return callback(null, null);
+      if (row.expiresAt <= Date.now()) {
+        return this.destroy(sid, () => callback(null, null));
+      }
+      try {
+        callback(null, JSON.parse(row.data));
+      } catch (parseErr) {
+        callback(parseErr);
+      }
+    });
+  }
+
+  set(sid, sess, callback = () => {}) {
+    let data;
+    try {
+      data = JSON.stringify(sess);
+    } catch (err) {
+      return callback(err);
+    }
+    this.db.run(
+      'INSERT INTO sessions (sid, data, expiresAt) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(sid) DO UPDATE SET data = excluded.data, expiresAt = excluded.expiresAt',
+      [sid, data, this.#expiry(sess)],
+      callback
+    );
+  }
+
+  touch(sid, sess, callback = () => {}) {
+    this.db.run('UPDATE sessions SET expiresAt = ? WHERE sid = ?', [this.#expiry(sess), sid], callback);
+  }
+
+  destroy(sid, callback = () => {}) {
+    this.db.run('DELETE FROM sessions WHERE sid = ?', [sid], callback);
+  }
+
+  length(callback) {
+    this.db.get('SELECT COUNT(*) AS count FROM sessions WHERE expiresAt > ?', [Date.now()], (err, row) => {
+      if (err) return callback(err);
+      callback(null, row.count);
+    });
+  }
+
+  clear(callback = () => {}) {
+    this.db.run('DELETE FROM sessions', callback);
+  }
+}
+
+const sessionStore = new SQLiteSessionStore(db);
+sessionStore.cleanup();
+
 // Session 設定
 app.use(session({
+  store: sessionStore,
   name: 'radio.sid',
   secret: SESSION_SECRET,
   resave: false,
