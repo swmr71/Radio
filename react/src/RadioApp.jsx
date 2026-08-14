@@ -731,6 +731,20 @@ export default function RadioApp() {
     setShowPlaylistForm(false);
   };
 
+  const deletePlaylist = (playlistId) => {
+    const target = playlists.find((pl) => pl.id === playlistId);
+    if (!target) return;
+    if (!confirm(`プレイリスト「${target.name}」を削除しますか？（エピソード自体は削除されません）`)) return;
+
+    setPlaylists(playlists.filter((pl) => pl.id !== playlistId));
+
+    // 表示中のプレイリストを消した場合はブラウズへ戻す
+    if (selectedPlaylistId === playlistId) {
+      setSelectedPlaylistId(null);
+      if (currentPage === 'playlist') setCurrentPage('browse');
+    }
+  };
+
   const toggleEpisodeInPlaylist = (playlistId, episodeId) => {
     setPlaylists(
       playlists.map((pl) => {
@@ -990,6 +1004,16 @@ export default function RadioApp() {
     .match-row:hover {
       background-color: #eef2ff;
     }
+
+    /* プレイリストの削除ボタンはホバー/フォーカス時だけ見せる */
+    .playlist-row:hover .playlist-delete,
+    .playlist-delete:focus-visible {
+      opacity: 1;
+    }
+    .playlist-delete:hover {
+      background-color: #fee2e2 !important;
+      color: #991b1b !important;
+    }
     .transcript-active {
       background-color: #f0fdf4 !important;
       border-left-color: #22c55e !important;
@@ -1189,22 +1213,32 @@ export default function RadioApp() {
 
           <div style={styles.playlistList}>
             {playlists.map((pl) => (
-              <button
-                key={pl.id}
-                onClick={() => {
-                  setCurrentPage('playlist');
-                  setSelectedPlaylistId(pl.id);
-                  setSidebarOpen(false);
-                }}
-                style={{
-                  ...styles.playlistButton,
-                  borderLeft: `4px solid ${pl.color}`,
-                  backgroundColor: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '#f3f4f6' : 'transparent',
-                  fontWeight: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '600' : 'normal',
-                }}
-              >
-                {pl.name} ({pl.episodeIds.length})
-              </button>
+              <div key={pl.id} style={styles.playlistRow} className="playlist-row">
+                <button
+                  onClick={() => {
+                    setCurrentPage('playlist');
+                    setSelectedPlaylistId(pl.id);
+                    setSidebarOpen(false);
+                  }}
+                  style={{
+                    ...styles.playlistButton,
+                    borderLeft: `4px solid ${pl.color}`,
+                    backgroundColor: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '#f3f4f6' : 'transparent',
+                    fontWeight: currentPage === 'playlist' && selectedPlaylistId === pl.id ? '600' : 'normal',
+                  }}
+                >
+                  {pl.name} ({pl.episodeIds.length})
+                </button>
+                <button
+                  onClick={() => deletePlaylist(pl.id)}
+                  style={styles.playlistDeleteBtn}
+                  className="playlist-delete"
+                  title={`${pl.name} を削除`}
+                  aria-label={`プレイリスト ${pl.name} を削除`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -1763,6 +1797,29 @@ const styles = {
     fontSize: '0.95rem',
     transition: 'background-color 0.2s',
     width: '100%',
+    // 右端の削除ボタンとテキストが重ならないようにする
+    paddingRight: '2rem',
+  },
+  playlistRow: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  playlistDeleteBtn: {
+    position: 'absolute',
+    right: '0.35rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '22px',
+    height: '22px',
+    padding: 0,
+    borderRadius: '999px',
+    backgroundColor: 'transparent',
+    color: '#9ca3af',
+    cursor: 'pointer',
+    opacity: 0,
+    transition: 'opacity 0.15s ease, background-color 0.15s ease',
   },
   mainContent: {
     marginLeft: '250px',
