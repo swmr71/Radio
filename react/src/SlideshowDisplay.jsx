@@ -14,27 +14,46 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
       ? [rawConfig]
       : [];
 
-    return rawSlides
-      .map((slide) => {
-        const image = slide.image ?? slide.imagePath ?? slide.src ?? slide.url;
+    const pickNumber = (...candidates) => {
+      for (const value of candidates) {
+        if (value === undefined || value === null) continue;
+        const num = Number(value);
+        if (Number.isFinite(num)) return num;
+      }
+      return null;
+    };
 
-        const rawStart = Number(slide.start ?? slide.startMs ?? slide.startTime ?? 0);
-        const rawEnd = Number(slide.end ?? slide.endMs ?? slide.endTime ?? durationMs);
+    const parsed = rawSlides
+      .map((slide) => ({
+        ...slide,
+        image: slide.image ?? slide.imagePath ?? slide.src ?? slide.url,
+        rawStart: pickNumber(slide.start, slide.startMs, slide.startTime) ?? 0,
+        // end は省略可。省略時は「次のスライドが始まるまで」表示する。
+        rawEnd: pickNumber(slide.end, slide.endMs, slide.endTime),
+      }))
+      .filter((slide) => typeof slide.image === 'string' && slide.image.length > 0)
+      .sort((a, b) => a.rawStart - b.rawStart);
 
-        const start = Number.isFinite(rawStart) ? rawStart : 0;
-        const end = Number.isFinite(rawEnd) ? rawEnd : durationMs;
+    // 秒指定かミリ秒指定かは、設定ファイル全体の最大値で一度だけ判定する。
+    // （スライドごとに判定すると、end を省略したスライドだけ単位がずれる）
+    const explicitValues = parsed.flatMap((s) =>
+      s.rawEnd === null ? [s.rawStart] : [s.rawStart, s.rawEnd]
+    );
+    const maxValue = explicitValues.length ? Math.max(...explicitValues) : 0;
+    const inSeconds = duration > 0 && maxValue <= duration + 1;
+    const toMs = (value) => (inSeconds ? value * 1000 : value);
 
-        // durationが秒単位で与えられている設定を吸収
-        const likelySeconds = duration > 0 && Math.max(start, end) <= duration + 1;
+    return parsed.map((slide, index) => {
+      const next = parsed[index + 1];
+      const end =
+        slide.rawEnd !== null
+          ? toMs(slide.rawEnd)
+          : next
+          ? toMs(next.rawStart)
+          : durationMs || Infinity;
 
-        return {
-          ...slide,
-          image,
-          start: likelySeconds ? start * 1000 : start,
-          end: likelySeconds ? end * 1000 : end,
-        };
-      })
-      .filter((slide) => typeof slide.image === 'string' && slide.image.length > 0);
+      return { ...slide, start: toMs(slide.rawStart), end };
+    });
   };
 
   const slides = normalizeSlides(config);
