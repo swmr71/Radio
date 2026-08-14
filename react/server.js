@@ -740,23 +740,26 @@ app.get('/api/episodes', isAuthenticated, (req, res) => {
 const transcriptCache = new Map(); // id -> { mtimeMs, utterances }
 
 function loadTranscriptCached(id) {
+  // 呼び出し元によって id が文字列だったり数値だったりするのでキーを揃える
+  const key = Number(id);
   const filePath = getTranscriptPath(id);
+
   let stats;
   try {
     stats = fs.statSync(filePath);
   } catch {
-    transcriptCache.delete(id);
+    transcriptCache.delete(key);
     return [];
   }
 
-  const cached = transcriptCache.get(id);
+  const cached = transcriptCache.get(key);
   if (cached && cached.mtimeMs === stats.mtimeMs) {
     return cached.utterances;
   }
 
   const utterances = readJsonSafe(filePath, []);
   const value = Array.isArray(utterances) ? utterances : [];
-  transcriptCache.set(id, { mtimeMs: stats.mtimeMs, utterances: value });
+  transcriptCache.set(key, { mtimeMs: stats.mtimeMs, utterances: value });
   return value;
 }
 
@@ -983,6 +986,7 @@ app.delete('/api/episodes/:id', isAdmin, (req, res) => {
       });
 
       deleteSlideshowImages(row.slideshowConfig);
+      transcriptCache.delete(Number(id));
 
       // 追加: エピソード個別データ削除
       try {
