@@ -18,6 +18,7 @@ import {
   ListPlus,
   MessageSquare,
   Edit2, // 追加
+  RotateCcw,
 } from 'lucide-react';
 import { SlideshowDisplay } from './SlideshowDisplay';
 
@@ -60,6 +61,7 @@ export default function RadioApp() {
   const [timeRestrictedMessage, setTimeRestrictedMessage] = useState(null); //制限時間の設定
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEpisode, setEditingEpisode] = useState(null);
+  const [retryingIds, setRetryingIds] = useState(new Set());
   const { isAdmin, user } = useAuth();
 
   const audioRef = useRef(null);
@@ -667,6 +669,29 @@ export default function RadioApp() {
     }
   };
 
+  // 失敗した文字起こしのやり直し（管理者のみ）
+  const retryTranscription = async (id) => {
+    setRetryingIds((prev) => new Set(prev).add(id));
+    try {
+      const res = await fetch(`/api/episodes/${id}/transcribe`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(`再試行できませんでした: ${data.error || res.statusText}`);
+        return;
+      }
+      await fetchEpisodes();
+    } catch (error) {
+      console.error('Retry failed:', error);
+      alert('再試行のリクエストに失敗しました');
+    } finally {
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   // 文字起こしステータスに応じたバッジの描画
   const renderStatusBadge = (status) => {
     switch (status) {
@@ -711,7 +736,23 @@ export default function RadioApp() {
             </div>
             <div style={styles.episodeCardContent} onClick={() => playEpisode(ep)}>
               {/* ステータスバッジを表示 */}
-              <div style={{ marginBottom: '0.25rem' }}>{renderStatusBadge(ep.transcriptStatus)}</div>
+              <div style={{ marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                {renderStatusBadge(ep.transcriptStatus)}
+                {isAdmin && ep.transcriptStatus === 'failed' && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      retryTranscription(ep.id);
+                    }}
+                    disabled={retryingIds.has(ep.id)}
+                    style={styles.retryBtn}
+                    title="文字起こしをやり直す"
+                  >
+                    <RotateCcw size={12} />
+                    {retryingIds.has(ep.id) ? '再開中...' : '再試行'}
+                  </button>
+                )}
+              </div>
               <h3 style={styles.episodeTitle} title={ep.title}>{ep.title}</h3>
               {ep.description && <p style={styles.episodeDesc}>{ep.description}</p>}
               <p style={styles.episodeDate}>
@@ -2011,6 +2052,19 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  retryBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.2rem',
+    padding: '0.15rem 0.5rem',
+    fontSize: '0.7rem',
+    fontWeight: '600',
+    color: '#991b1b',
+    backgroundColor: '#fff',
+    border: '1px solid #fecaca',
+    borderRadius: '999px',
+    cursor: 'pointer',
   },
   secondaryControls: {
     display: 'flex',
