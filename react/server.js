@@ -705,16 +705,17 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
-  const { title, description } = req.body;
-  const descriptionMarkdown = typeof description === 'string' ? description : '';
+  const descriptionMarkdown = typeof req.body.description === 'string' ? req.body.description : '';
   const descriptionPlain = stripMarkdown(descriptionMarkdown);
   const uploadedFilePath = path.join(audioDir, req.file.filename);
   const isZip = req.file.mimetype === 'application/zip' || req.file.mimetype === 'application/x-zip-compressed';
 
-  if (!title) {
+  const validationError = validateEpisodeFields(req.body.title, descriptionMarkdown);
+  if (validationError) {
     fs.unlinkSync(uploadedFilePath);
-    return res.status(400).json({ error: 'Title is required' });
+    return res.status(400).json({ error: validationError });
   }
+  const title = req.body.title.trim();
 
   try {
     let audioFilename = req.file.filename;
@@ -930,13 +931,15 @@ app.get('/api/episodes/:id', isAuthenticated, (req, res) => {
 
 app.patch('/api/episodes/:id', isAdmin, (req, res) => {
   const { id } = req.params;
-  const { title, description } = req.body; // description はMarkdownソースとして扱う
+  // description はMarkdownソースとして扱う
+  const descriptionMarkdown = typeof req.body.description === 'string' ? req.body.description : '';
 
-  if (!title) {
-    return res.status(400).json({ error: 'Title is required' });
+  const validationError = validateEpisodeFields(req.body.title, descriptionMarkdown);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
   }
 
-  const descriptionMarkdown = typeof description === 'string' ? description : '';
+  const title = req.body.title.trim();
   const descriptionPlain = stripMarkdown(descriptionMarkdown);
 
   db.run(
@@ -1136,6 +1139,23 @@ function writeJsonAtomic(filePath, value) {
   const tmp = `${filePath}.tmp-${Date.now()}`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf-8');
   fs.renameSync(tmp, filePath);
+}
+
+const MAX_TITLE_LENGTH = 200;
+const MAX_DESCRIPTION_LENGTH = 100000;
+
+// アップロードと編集で同じ検証を使う。問題があればメッセージを、無ければ null を返す。
+function validateEpisodeFields(title, descriptionMarkdown) {
+  if (typeof title !== 'string' || !title.trim()) {
+    return 'Title is required';
+  }
+  if (title.trim().length > MAX_TITLE_LENGTH) {
+    return `Title must be at most ${MAX_TITLE_LENGTH} characters`;
+  }
+  if (descriptionMarkdown.length > MAX_DESCRIPTION_LENGTH) {
+    return `Description must be at most ${MAX_DESCRIPTION_LENGTH} characters`;
+  }
+  return null;
 }
 
 // 軽量なMarkdown→プレーン変換（一覧キャッシュ用）
