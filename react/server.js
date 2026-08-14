@@ -188,7 +188,24 @@ db.serialize(() => {
 // 文字起こしの手動修正は1時間番組で数百KBになる。express.json の既定 100kb
 // では PUT /api/episodes/:id/transcript が 413 で弾かれていた。
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'dist')));
+// Vite の出力は内容ハッシュ付きファイル名なので長期キャッシュして良い。
+// ただし index.html はエントリポイントなので毎回検証させないと、
+// デプロイしても古い JS を指したままの HTML が返り続ける。
+app.use(
+  express.static(path.join(__dirname, 'dist'), {
+    maxAge: '1y',
+    index: false,
+    setHeaders: (res, filePath) => {
+      if (path.basename(filePath) === 'index.html') {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  })
+);
+app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
 // /uploads（スライド画像）は認証チェックが必要なので、passport 初期化より後
 // （下の「保護されたコンテンツ」セクション）で登録する。
 
@@ -1294,6 +1311,7 @@ app.use(['/api', '/auth', '/audio', '/uploads'], (req, res) => {
 
 // SPA用のフォールバック
 app.get('*', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
