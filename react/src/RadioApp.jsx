@@ -773,11 +773,13 @@ export default function RadioApp() {
               </p>
             </div>
             <div style={styles.episodeCardActions}>
-              <button onClick={() => playEpisode(ep)} style={styles.playBtn}>
+              <button onClick={() => playEpisode(ep)} style={styles.playBtn} aria-label={`${ep.title} を再生`}>
                 <Play size={18} />
               </button>
               <button
                 onClick={() => toggleFavorite(ep.id)}
+                aria-label={favorites.has(ep.id) ? 'お気に入りから外す' : 'お気に入りに追加'}
+                aria-pressed={favorites.has(ep.id)}
                 style={{
                   ...styles.favoriteBtn,
                   ...(favorites.has(ep.id) ? styles.favoriteBtnActive : {}),
@@ -792,6 +794,8 @@ export default function RadioApp() {
                     e.stopPropagation();
                     setActiveDropdownEpisodeId(activeDropdownEpisodeId === ep.id ? null : ep.id);
                   }}
+                  aria-label="プレイリストに追加"
+                  aria-expanded={activeDropdownEpisodeId === ep.id}
                   style={{
                     ...styles.favoriteBtn,
                     backgroundColor: playlists.some((p) => p.episodeIds.includes(ep.id))
@@ -839,6 +843,7 @@ export default function RadioApp() {
                     }}
                     style={{ ...styles.favoriteBtn, color: '#2563eb' }}
                     title="エピソードを編集"
+                    aria-label={`${ep.title} を編集`}
                   >
                     <Edit2 size={18} />
                   </button>
@@ -849,6 +854,7 @@ export default function RadioApp() {
                     }}
                     style={styles.deleteBtn}
                     title="エピソードを削除"
+                    aria-label={`${ep.title} を削除`}
                   >
                     <Trash2 size={18} />
                   </button>
@@ -1123,7 +1129,13 @@ export default function RadioApp() {
         <div style={{ position: 'absolute', top: '1rem', right: '1rem', zIndex: 100, display: playerExpanded ? 'none' : 'flex', alignItems: 'center', gap: '1rem' }}>
           <UserMenu />
         </div>
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="responsive-hamburger" style={styles.hamburgerBtn}>
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="responsive-hamburger"
+          style={styles.hamburgerBtn}
+          aria-label="メニューを開閉"
+          aria-expanded={sidebarOpen}
+        >
           <Menu size={24} />
         </button>
 
@@ -1323,6 +1335,7 @@ export default function RadioApp() {
                 togglePlayPause();
               }}
               style={styles.miniPlayerPlayBtn}
+              aria-label={isPlaying ? '一時停止' : '再生'}
             >
               {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
@@ -1332,7 +1345,7 @@ export default function RadioApp() {
         {/* 拡張プレイヤー */}
         {playerExpanded && currentEpisode && (
           <div style={styles.expandedPlayer} className="animate-slide-up">
-            <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn}>
+            <button onClick={() => setPlayerExpanded(false)} style={styles.collapseBtn} aria-label="プレイヤーを閉じる">
               <X size={24} />
             </button>
 
@@ -1366,6 +1379,8 @@ export default function RadioApp() {
                 <div style={styles.playerControls}>
                   <button
                     onClick={() => setIsShuffle(!isShuffle)}
+                    aria-label="シャッフル再生"
+                    aria-pressed={isShuffle}
                     style={{
                       ...styles.controlButton,
                       ...(isShuffle ? styles.controlButtonActive : {}),
@@ -1374,15 +1389,15 @@ export default function RadioApp() {
                     <Shuffle size={24} />
                   </button>
 
-                  <button onClick={playPrev} style={styles.controlButton}>
+                  <button onClick={playPrev} style={styles.controlButton} aria-label="前のエピソード">
                     <SkipBack size={24} />
                   </button>
 
-                  <button onClick={togglePlayPause} style={styles.playButtonLarge}>
+                  <button onClick={togglePlayPause} style={styles.playButtonLarge} aria-label={isPlaying ? '一時停止' : '再生'}>
                     {isPlaying ? <Pause size={32} /> : <Play size={32} />}
                   </button>
 
-                  <button onClick={playNext} style={styles.controlButton}>
+                  <button onClick={playNext} style={styles.controlButton} aria-label="次のエピソード">
                     <SkipForward size={24} />
                   </button>
 
@@ -1392,6 +1407,7 @@ export default function RadioApp() {
                       else if (repeatMode === 'all') setRepeatMode('one');
                       else setRepeatMode('none');
                     }}
+                    aria-label={`リピート: ${repeatMode === 'none' ? 'オフ' : repeatMode === 'all' ? 'すべて' : '1曲'}`}
                     style={{
                       ...styles.controlButton,
                       ...(repeatMode !== 'none' ? styles.controlButtonActive : {}),
