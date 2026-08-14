@@ -735,6 +735,76 @@ app.get('/api/episodes', isAuthenticated, (req, res) => {
   );
 });
 
+// ============ 文字起こし全文検索 ============
+// transcript.json をディスクから読むので、mtime をキーに簡易キャッシュする。
+const transcriptCache = new Map(); // id -> { mtimeMs, utterances }
+
+function loadTranscriptCached(id) {
+  const filePath = getTranscriptPath(id);
+  let stats;
+  try {
+    stats = fs.statSync(filePath);
+  } catch {
+    transcriptCache.delete(id);
+    return [];
+  }
+
+  const cached = transcriptCache.get(id);
+  if (cached && cached.mtimeMs === stats.mtimeMs) {
+    return cached.utterances;
+  }
+
+  const utterances = readJsonSafe(filePath, []);
+  const value = Array.isArray(utterances) ? utterances : [];
+  transcriptCache.set(id, { mtimeMs: stats.mtimeMs, utterances: value });
+  return value;
+}
+
+const MAX_MATCHES_PER_EPISODE = 5;
+
+app.get('/api/search', isAuthenticated, (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
+
+  if (query.length < 2) {
+    return res.status(400).json({ error: '検索語は2文字以上で指定してください' });
+  }
+
+  db.all(
+    "SELECT id, title FROM episodes WHERE transcriptStatus = 'completed' ORDER BY uploadedAt DESC",
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      const results = [];
+
+      for (const row of rows) {
+        const utterances = loadTranscriptCached(row.id);
+        const matches = [];
+
+        for (const utterance of utterances) {
+          if (typeof utterance?.text !== 'string') continue;
+          if (!utterance.text.toLowerCase().includes(query)) continue;
+
+          matches.push({
+            speaker: utterance.speaker,
+            text: utterance.text,
+            start: utterance.start,
+            end: utterance.end,
+          });
+          if (matches.length >= MAX_MATCHES_PER_EPISODE) break;
+        }
+
+        if (matches.length > 0) {
+          results.push({ id: row.id, title: row.title, matches });
+        }
+      }
+
+      res.json(results);
+    }
+  );
+});
+
 app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
