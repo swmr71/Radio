@@ -425,8 +425,19 @@ export default function RadioApp() {
     }
 
     if (isShuffle) {
-      const randomIndex = Math.floor(Math.random() * trackList.length);
-      playEpisode(trackList[randomIndex]);
+      // 現在のエピソードを候補から除く。含めたままだと、たとえば3曲の
+      // プレイリストで3回に1回は同じ曲がもう一度かかっていた。
+      const others = trackList.filter((ep) => ep.id !== currentEpisode.id);
+      if (others.length === 0) {
+        // 1件しかない場合はリピート設定に従う
+        if (repeatMode === 'all' || repeatMode === 'one') {
+          playEpisode(trackList[0]);
+        } else {
+          setIsPlaying(false);
+        }
+        return;
+      }
+      playEpisode(others[Math.floor(Math.random() * others.length)]);
     } else {
       const currentIndex = trackList.findIndex((ep) => ep.id === currentEpisode.id);
       if (currentIndex !== -1) {
