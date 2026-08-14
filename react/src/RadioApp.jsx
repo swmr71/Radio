@@ -65,6 +65,7 @@ export default function RadioApp() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEpisode, setEditingEpisode] = useState(null);
   const [retryingIds, setRetryingIds] = useState(new Set());
+  const [loadError, setLoadError] = useState(null);
   const [transcriptMatches, setTranscriptMatches] = useState([]);
   const [searchingTranscripts, setSearchingTranscripts] = useState(false);
   const { isAdmin, user } = useAuth();
@@ -189,8 +190,9 @@ export default function RadioApp() {
       }
 
       if (!res.ok) throw new Error(data.error || 'Failed to fetch');
-      
+
       setEpisodes(data);
+      setLoadError(null);
 
       // もし現在再生中のエピソードがポーリングで「完了」になったら、詳細データも再取得して反映
       if (currentEpisode) {
@@ -201,6 +203,9 @@ export default function RadioApp() {
       }
     } catch (error) {
       console.error('Failed to fetch episodes:', error);
+      // 失敗を握りつぶすと「エピソードが見つかりません」と表示され、
+      // 一件も無いのか通信に失敗したのか区別できない
+      setLoadError(error.message || '読み込みに失敗しました');
     }
   };
 
@@ -1259,6 +1264,15 @@ export default function RadioApp() {
           <Menu size={24} />
         </button>
 
+        {loadError && (
+          <div style={styles.errorBanner} role="alert">
+            <span>エピソードの読み込みに失敗しました: {loadError}</span>
+            <button onClick={fetchEpisodes} style={styles.errorBannerButton}>
+              <RotateCcw size={14} /> 再読み込み
+            </button>
+          </div>
+        )}
+
         {currentPage === 'browse' && (
           <div style={styles.page}>
             <div style={styles.searchContainer}>
@@ -2263,6 +2277,33 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  errorBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    margin: '0 0 1.25rem',
+    padding: '0.75rem 1rem',
+    backgroundColor: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: '10px',
+    color: '#991b1b',
+    fontSize: '0.9rem',
+  },
+  errorBannerButton: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    padding: '0.35rem 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: '600',
+    color: '#991b1b',
+    backgroundColor: '#fff',
+    border: '1px solid #fecaca',
+    borderRadius: '999px',
+    cursor: 'pointer',
   },
   searchingLabel: {
     marginLeft: '0.6rem',
