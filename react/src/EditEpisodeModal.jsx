@@ -1,20 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Save, Edit2, MessageSquare, Image, Loader, Plus, Trash2 } from 'lucide-react';
 
 export function EditEpisodeModal({ episode, onClose, onSave }) {
   const [activeTab, setActiveTab] = useState('info'); // info, transcript, slideshow
   const [title, setTitle] = useState(episode.title);
-  const [description, setDescription] = useState(episode.description || '');
-  const [transcript, setTranscript] = useState(
-    Array.isArray(episode.transcript) ? episode.transcript : []
-  );
-  const [slideshow, setSlideshow] = useState(episode.slideshowConfig || []);
+  const [description, setDescription] = useState('');
+  const [transcript, setTranscript] = useState([]);
+  const [slideshow, setSlideshow] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
 
+  // 一覧APIのレスポンスには transcript も slideshowConfig も含まれず、
+  // description は Markdown を落としたプレーンテキストしか入っていない。
+  // それを初期値にすると、そのまま保存した時点で文字起こしとスライド設定が
+  // 空配列で上書きされ、Markdown も失われる。必ず詳細を取り直してから編集する。
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/episodes/${episode.id}`);
+        if (!res.ok) throw new Error('エピソードの読み込みに失敗しました');
+        const data = await res.json();
+        if (cancelled) return;
+
+        setTitle(data.title ?? '');
+        setDescription(data.descriptionMarkdown ?? data.description ?? '');
+        setTranscript(Array.isArray(data.transcript) ? data.transcript : []);
+        setSlideshow(Array.isArray(data.slideshowConfig) ? data.slideshowConfig : []);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [episode.id]);
+
   // 保存処理
   const handleSave = async () => {
+    if (isLoading) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
@@ -130,9 +160,16 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
 
         {/* メインスクロールエリア */}
         <div style={modalStyles.scrollArea}>
-          
+
+          {isLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', padding: '3rem', color: '#6b7280' }}>
+              <Loader size={18} style={{ animation: 'spin 1s linear infinite' }} />
+              読み込み中...
+            </div>
+          )}
+
           {/* 1. 基本情報 */}
-          {activeTab === 'info' && (
+          {!isLoading && activeTab === 'info' && (
             <div style={{ maxWidth: '600px' }}>
               <div style={modalStyles.formGroup}>
                 <label style={modalStyles.label}>タイトル</label>
@@ -158,7 +195,7 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
           )}
 
           {/* 2. 文字起こし */}
-          {activeTab === 'transcript' && (
+          {!isLoading && activeTab === 'transcript' && (
             <div>
               <div style={modalStyles.subHeaderActions}>
                 <span style={modalStyles.countBadge}>セグメント数: {transcript.length} 件</span>
@@ -231,7 +268,7 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
           )}
 
           {/* 3. スライドショー */}
-          {activeTab === 'slideshow' && (
+          {!isLoading && activeTab === 'slideshow' && (
             <div>
               <div style={modalStyles.subHeaderActions}>
                 <span style={modalStyles.countBadge}>スライド数: {slideshow.length} 枚</span>
@@ -322,7 +359,7 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
             <button onClick={onClose} style={modalStyles.cancelButton}>
               キャンセル
             </button>
-            <button onClick={handleSave} disabled={isSaving} style={modalStyles.saveButton}>
+            <button onClick={handleSave} disabled={isSaving || isLoading} style={modalStyles.saveButton}>
               {isSaving ? <Loader size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={16} />}
               {activeTab === 'info' ? '基本情報を保存' : activeTab === 'transcript' ? '文字起こしを保存' : 'スライドを保存'}
             </button>
