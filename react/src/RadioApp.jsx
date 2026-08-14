@@ -119,15 +119,25 @@ export default function RadioApp() {
     }
   }, [currentEpisode?.id]); // idが変わったときだけ初期化するよう修正（文字起こしデータ更新でリセットされないため）
 
-  // 再生位置に合わせて文字起こしテキストを自動スクロール追従させる
+  // 現在再生中の発言のインデックス。文字起こしは時刻順なので線形探索で十分。
+  const activeUtteranceIndex = useMemo(() => {
+    const transcript = currentEpisode?.transcript;
+    if (!Array.isArray(transcript)) return -1;
+    const ms = currentTime * 1000;
+    return transcript.findIndex((item) => ms >= item.start && ms <= item.end);
+  }, [currentEpisode?.transcript, currentTime]);
+
+  // 再生位置に合わせて文字起こしテキストを自動スクロール追従させる。
+  // timeupdate は毎秒4回ほど発火するため、行が切り替わったときだけスクロールする
+  // （以前は毎回 scrollIntoView({behavior:'smooth'}) を呼び直していて、
+  //   アニメーションが常に中断され、手動スクロールも奪われていた）。
   useEffect(() => {
-    if (playerExpanded && currentEpisode?.transcriptStatus === 'completed') {
-      const activeUtterance = document.querySelector('.transcript-active');
-      if (activeUtterance) {
-        activeUtterance.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
+    if (!playerExpanded || activeUtteranceIndex < 0) return;
+    const activeUtterance = document.querySelector('.transcript-active');
+    if (activeUtterance) {
+      activeUtterance.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
-  }, [currentTime, playerExpanded, currentEpisode]);
+  }, [activeUtteranceIndex, playerExpanded]);
   
   // アプリを開きっぱなしにしている場合のための、定期的な時間制限チェック
   useEffect(() => {
@@ -963,8 +973,6 @@ export default function RadioApp() {
     }
   `;
 
-  const currentMs = currentTime * 1000;
-
   // 時間外制限のメッセージがある場合は、アプリのメインUIを表示せずにロック画面を返す
   if (timeRestrictedMessage) {
     return (
@@ -1421,7 +1429,7 @@ export default function RadioApp() {
                 <div style={styles.transcriptScrollArea}>
                   {currentEpisode.transcriptStatus === 'completed' && currentEpisode.transcript ? (
                     currentEpisode.transcript.map((item, index) => {
-                      const isActive = currentMs >= item.start && currentMs <= item.end;
+                      const isActive = index === activeUtteranceIndex;
                       return (
                         <div
                           key={index}
