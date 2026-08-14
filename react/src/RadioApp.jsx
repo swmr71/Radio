@@ -787,6 +787,11 @@ export default function RadioApp() {
               {ep.description && <p style={styles.episodeDesc}>{ep.description}</p>}
               <p style={styles.episodeDate}>
                 {new Date(ep.uploadedAt).toLocaleDateString('ja-JP')}
+                {playbackPositionsRef.current[ep.id] > 0 && (
+                  <span style={styles.resumeBadge}>
+                    続きから {formatTime(playbackPositionsRef.current[ep.id])}
+                  </span>
+                )}
               </p>
             </div>
             <div style={styles.episodeCardActions}>
@@ -2106,6 +2111,16 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  resumeBadge: {
+    display: 'inline-block',
+    marginLeft: '0.5rem',
+    padding: '0.05rem 0.4rem',
+    fontSize: '0.7rem',
+    fontWeight: '600',
+    color: '#4f46e5',
+    backgroundColor: '#eef2ff',
+    borderRadius: '999px',
   },
   retryBtn: {
     display: 'inline-flex',
