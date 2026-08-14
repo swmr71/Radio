@@ -386,17 +386,14 @@ const isAdmin = (req, res, next) => {
 // スライド画像はエピソード本文の一部なので、音声と同じくログイン必須にする。
 app.use('/uploads', isAuthenticated, express.static(uploadsDir));
 
-// ============ 利用時間制限ミドルウェア ============
-const checkTimeRestriction = (req, res, next) => {
-  const timeRange = process.env.ALLOWED_TIME_RANGE; 
+// ============ 利用時間制限 ============
+// 現在が利用可能時間内かを返す。ミドルウェアと /api/time-status で共用する。
+const evaluateTimeRestriction = () => {
+  const timeRange = process.env.ALLOWED_TIME_RANGE;
   const restrictionMessage = process.env.RESTRICTED_MESSAGE || '現在はシステム利用時間外です。';
 
   if (!timeRange) {
-    return next();
-  }
-
-  if (!req.path.startsWith('/api') && !req.path.startsWith('/audio')) {
-    return next();
+    return { allowed: true, message: null };
   }
 
   const now = new Date();
@@ -413,34 +410,48 @@ const checkTimeRestriction = (req, res, next) => {
 
   const currentMinutes = hour * 60 + minute;
 
-  const [startStr, endStr] = timeRange.split('-');
+  const [startStr = '', endStr = ''] = timeRange.split('-');
   const [startH, startM] = startStr.split(':').map(Number);
   const [endH, endM] = endStr.split(':').map(Number);
 
   const startMinutes = startH * 60 + startM;
   const endMinutes = endH * 60 + endM;
 
-  let isAllowed = false;
-
-  if (startMinutes <= endMinutes) {
-    if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
-      isAllowed = true;
-    }
-  } else {
-    if (currentMinutes >= startMinutes || currentMinutes <= endMinutes) {
-      isAllowed = true;
-    }
+  // 書式が壊れている場合に全員を締め出さないよう、制限なしとして扱う
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes)) {
+    console.warn(`⚠️ ALLOWED_TIME_RANGE の書式が不正です: "${timeRange}" (期待する形式: HH:MM-HH:MM)`);
+    return { allowed: true, message: null };
   }
 
-  if (!isAllowed) {
-    return res.status(403).json({ 
-      error: restrictionMessage, 
-      isTimeRestricted: true 
-    });
+  const isAllowed =
+    startMinutes <= endMinutes
+      ? currentMinutes >= startMinutes && currentMinutes <= endMinutes
+      : // 日をまたぐ指定（例 22:00-06:00）
+        currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+
+  return { allowed: isAllowed, message: isAllowed ? null : restrictionMessage };
+};
+
+const checkTimeRestriction = (req, res, next) => {
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/audio')) {
+    return next();
+  }
+
+  const { allowed, message } = evaluateTimeRestriction();
+  if (!allowed) {
+    return res.status(403).json({ error: message, isTimeRestricted: true });
   }
 
   next();
 };
+
+// 利用時間内かどうかだけを返す軽量エンドポイント。フロントが1分おきに
+// 状態を見張るのに使う（以前はエピソード一覧を丸ごと取得していた）。
+// 制限中でも応答する必要があるので checkTimeRestriction より前に置く。
+app.get('/api/time-status', (req, res) => {
+  const { allowed, message } = evaluateTimeRestriction();
+  res.json({ isTimeRestricted: !allowed, message });
+});
 
 // ヘルスチェック（時間制限ミドルウェアより前に置く。利用時間外でもコンテナは
 // 健全なので、403 で unhealthy 扱いにされて再起動ループに入るのを避ける）

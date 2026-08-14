@@ -73,6 +73,7 @@ export default function RadioApp() {
   // { [episodeId]: 秒 } 形式の再生位置。localStorage から復元する。
   const playbackPositionsRef = useRef(readStored('positions', {}) || {});
   const lastSavedPositionRef = useRef(0);
+  const timeRestrictedRef = useRef(null);
 
   useEffect(() => {
     fetchEpisodes();
@@ -146,12 +147,16 @@ export default function RadioApp() {
   useEffect(() => {
     const checkTimeRestrictionLoop = async () => {
       try {
-        const res = await fetch('/api/episodes');
-        if (res.status === 403) {
-          const data = await res.json();
-          if (data.isTimeRestricted) {
-            setTimeRestrictedMessage(data.error);
-          }
+        const res = await fetch('/api/time-status');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.isTimeRestricted) {
+          setTimeRestrictedMessage(data.message);
+        } else if (timeRestrictedRef.current) {
+          // 利用可能時間に戻ったらロック画面を解除して一覧を取り直す
+          setTimeRestrictedMessage(null);
+          fetchEpisodesRef.current();
         }
       } catch (error) {
         console.error('Failed to check time restriction:', error);
@@ -208,9 +213,10 @@ export default function RadioApp() {
     }
   };
 
-  // ポーリング用に最新の fetchEpisodes を保持（タイマー再生成を避けるため）
+  // ポーリング用に最新の値を保持（タイマー再生成を避けるため）
   const fetchEpisodesRef = useRef(fetchEpisodes);
   fetchEpisodesRef.current = fetchEpisodes;
+  timeRestrictedRef.current = timeRestrictedMessage;
 
   const handleUpload = async (e) => {
     if (e) e.preventDefault();
