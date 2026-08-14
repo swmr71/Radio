@@ -30,6 +30,9 @@ import { usePersistedState, setOfIds, readStored, writeStored } from './usePersi
 
 const PLAYBACK_RATES = [1, 1.25, 1.5, 2];
 
+// server.js の multer limits.fileSize と揃えること
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
 export default function RadioApp() {
   const [episodes, setEpisodes] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1185,12 +1188,22 @@ export default function RadioApp() {
                         accept=".mp3,audio/mpeg,.zip,application/zip"
                         onChange={(e) => {
                           const file = e.target.files[0];
-                          if (file) {
-                            setUploadFile(file);
-                            // ファイル名から最後のドット以降（拡張子）を取り除く
-                            const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
-                            setEpisodeTitle(titleWithoutExt);
+                          if (!file) return;
+
+                          // サーバー側の上限に達してから弾かれると、500MBを
+                          // 送りきった後に失敗することになるので手前で止める
+                          if (file.size > MAX_UPLOAD_BYTES) {
+                            alert(
+                              `ファイルサイズが上限（${formatBytes(MAX_UPLOAD_BYTES)}）を超えています: ${formatBytes(file.size)}`
+                            );
+                            e.target.value = '';
+                            return;
                           }
+
+                          setUploadFile(file);
+                          // ファイル名から最後のドット以降（拡張子）を取り除く
+                          const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+                          setEpisodeTitle(titleWithoutExt);
                         }}
                         style={styles.fileInput}
                       />
