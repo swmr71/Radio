@@ -87,6 +87,9 @@ export function SlideshowDisplay({ config, currentTime, duration }) {
         alt={`Slide ${currentImageIndex + 1}`}
         style={styles.slideshowImage}
       />
+      {currentImage.caption && (
+        <div style={styles.slideshowCaption}>{currentImage.caption}</div>
+      )}
       <div style={styles.slideshowIndicator}>
         {currentImageIndex + 1} / {slides.length}
       </div>
@@ -125,6 +128,18 @@ const styles = {
     height: '100%',
     objectFit: 'cover',
     transition: 'opacity 0.3s ease-out',
+  },
+  slideshowCaption: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: '1.5rem 0.6rem 0.5rem',
+    background: 'linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent)',
+    color: '#fff',
+    fontSize: '0.75rem',
+    lineHeight: 1.4,
+    textAlign: 'left',
   },
   slideshowIndicator: {
     position: 'absolute',

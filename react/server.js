@@ -1094,6 +1094,9 @@ app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
         return res.status(400).json({ error: `Slide ${index} needs an "image" string` });
       }
       const entry = { image: slide.image };
+      if (typeof slide.caption === 'string' && slide.caption.trim()) {
+        entry.caption = slide.caption.slice(0, 500);
+      }
       // start / end は任意。数値として解釈できるものだけ通す。
       for (const key of ['start', 'end']) {
         if (slide[key] !== undefined && slide[key] !== null) {

@@ -111,7 +111,10 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
   };
 
   const addSlideshowItem = () => {
-    setSlideshow([...slideshow, { image: '', time: 0, caption: '' }]);
+    // start / end / image / caption がプレイヤーとサーバーが解釈するキー。
+    // 以前は time というキーを書いていたが、これを読む側はどこにも無かった。
+    const lastStart = slideshow.length ? Number(slideshow[slideshow.length - 1].start) || 0 : 0;
+    setSlideshow([...slideshow, { image: '', start: lastStart, caption: '' }]);
   };
 
   const removeSlideshowItem = (index) => {
@@ -320,12 +323,12 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
                           />
                         </div>
                         <div>
-                          <label style={modalStyles.cardLabel}>表示タイミング (ms)</label>
+                          <label style={modalStyles.cardLabel}>開始時刻 (ms) — 次のスライドまで表示されます</label>
                           <input
                             type="number"
                             placeholder="0"
-                            value={slide.time ?? ''}
-                            onChange={(e) => handleSlideshowChange(idx, 'time', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            value={slide.start ?? ''}
+                            onChange={(e) => handleSlideshowChange(idx, 'start', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
                             style={modalStyles.cardInput}
                           />
                         </div>
