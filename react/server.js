@@ -3,6 +3,7 @@ import multer from 'multer';
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { AssemblyAI } from 'assemblyai';
 import { GoogleGenAI } from '@google/genai'; // 💡 Google Gen AI SDKを追加
@@ -93,15 +94,21 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
+// アップロードごとに一意な識別子（時刻順に並ぶよう先頭はタイムスタンプ）
+function episodeSlug() {
+  return `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
 // multer 設定
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, audioDir);
   },
   filename: (req, file, cb) => {
-    const timestamp = Date.now();
-    const ext = path.extname(file.originalname);
-    cb(null, `episode-${timestamp}${ext}`);
+    // タイムスタンプだけだと同一ミリ秒の同時アップロードで衝突し、
+    // 片方のファイルがもう片方を上書きしてしまう（filename は UNIQUE 制約）。
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `episode-${episodeSlug()}${ext}`);
   },
 });
 
@@ -720,7 +727,7 @@ app.post('/api/upload', isAdmin, upload.single('file'), async (req, res) => {
   try {
     let audioFilename = req.file.filename;
     let slideshowConfig = null;
-    const episodeTimestamp = Date.now();
+    const episodeTimestamp = episodeSlug();
 
     if (isZip) {
       const { mp3File, jsonConfig, imageFiles } = extractZipAndGetConfig(uploadedFilePath);
