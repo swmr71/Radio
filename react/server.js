@@ -178,7 +178,9 @@ db.serialize(() => {
 });
 
 // ============ Express ミドルウェア設定 ============
-app.use(express.json());
+// 文字起こしの手動修正は1時間番組で数百KBになる。express.json の既定 100kb
+// では PUT /api/episodes/:id/transcript が 413 で弾かれていた。
+app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'dist')));
 // /uploads（スライド画像）は認証チェックが必要なので、passport 初期化より後
 // （下の「保護されたコンテンツ」セクション）で登録する。
@@ -964,6 +966,8 @@ app.patch('/api/episodes/:id', isAdmin, (req, res) => {
   );
 });
 
+const MAX_TRANSCRIPT_ITEMS = 50000;
+
 app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
   const { id } = req.params;
   const { transcript } = req.body;
@@ -971,10 +975,33 @@ app.put('/api/episodes/:id/transcript', isAdmin, (req, res) => {
   if (!Array.isArray(transcript)) {
     return res.status(400).json({ error: 'Transcript must be an array' });
   }
+  if (transcript.length > MAX_TRANSCRIPT_ITEMS) {
+    return res.status(400).json({ error: `Transcript must have at most ${MAX_TRANSCRIPT_ITEMS} items` });
+  }
+
+  // 想定するキー以外は捨てる。フロントの編集画面から丸ごと送り返されるため、
+  // 検証しないと任意のJSONがそのまま transcript.json に書き込まれてしまう。
+  const sanitized = [];
+  for (const [index, item] of transcript.entries()) {
+    if (!item || typeof item !== 'object') {
+      return res.status(400).json({ error: `Transcript item ${index} must be an object` });
+    }
+    const start = Number(item.start);
+    const end = Number(item.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      return res.status(400).json({ error: `Transcript item ${index} needs numeric start/end` });
+    }
+    sanitized.push({
+      speaker: typeof item.speaker === 'string' ? item.speaker.slice(0, 32) : '',
+      text: typeof item.text === 'string' ? item.text : '',
+      start,
+      end,
+    });
+  }
 
   try {
     ensureEpisodeDir(id);
-    writeJsonAtomic(getTranscriptPath(id), transcript);
+    writeJsonAtomic(getTranscriptPath(id), sanitized);
   } catch (fileErr) {
     return res.status(500).json({ error: fileErr.message });
   }
@@ -1025,13 +1052,44 @@ app.post('/api/episodes/:id/transcribe', isAdmin, (req, res) => {
   });
 });
 
+const MAX_SLIDES = 1000;
+
 app.post('/api/episodes/:id/slideshow', isAdmin, (req, res) => {
   const { id } = req.params;
   const { slideshowConfig } = req.body;
 
+  let sanitized = null;
+  if (slideshowConfig !== null && slideshowConfig !== undefined) {
+    if (!Array.isArray(slideshowConfig)) {
+      return res.status(400).json({ error: 'slideshowConfig must be an array or null' });
+    }
+    if (slideshowConfig.length > MAX_SLIDES) {
+      return res.status(400).json({ error: `slideshowConfig must have at most ${MAX_SLIDES} slides` });
+    }
+
+    sanitized = [];
+    for (const [index, slide] of slideshowConfig.entries()) {
+      if (!slide || typeof slide !== 'object' || typeof slide.image !== 'string') {
+        return res.status(400).json({ error: `Slide ${index} needs an "image" string` });
+      }
+      const entry = { image: slide.image };
+      // start / end は任意。数値として解釈できるものだけ通す。
+      for (const key of ['start', 'end']) {
+        if (slide[key] !== undefined && slide[key] !== null) {
+          const value = Number(slide[key]);
+          if (!Number.isFinite(value)) {
+            return res.status(400).json({ error: `Slide ${index} has a non-numeric "${key}"` });
+          }
+          entry[key] = value;
+        }
+      }
+      sanitized.push(entry);
+    }
+  }
+
   db.run(
     'UPDATE episodes SET slideshowConfig = ? WHERE id = ?',
-    [slideshowConfig ? JSON.stringify(slideshowConfig) : null, id],
+    [sanitized ? JSON.stringify(sanitized) : null, id],
     (err) => {
       if (err) {
         return res.status(500).json({ error: err.message });
