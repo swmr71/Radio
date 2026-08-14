@@ -65,6 +65,8 @@ export default function RadioApp() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEpisode, setEditingEpisode] = useState(null);
   const [retryingIds, setRetryingIds] = useState(new Set());
+  const [transcriptMatches, setTranscriptMatches] = useState([]);
+  const [searchingTranscripts, setSearchingTranscripts] = useState(false);
   const { isAdmin, user } = useAuth();
 
   const audioRef = useRef(null);
@@ -211,6 +213,60 @@ export default function RadioApp() {
     } catch (error) {
       console.error('Failed to fetch episode details:', error);
     }
+  };
+
+  // ============ 文字起こし全文検索 ============
+  // 入力のたびに叩かないよう350msデバウンスする
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setTranscriptMatches([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setSearchingTranscripts(true);
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        if (!res.ok) throw new Error('search failed');
+        const data = await res.json();
+        if (!cancelled) setTranscriptMatches(Array.isArray(data) ? data : []);
+      } catch (error) {
+        if (!cancelled) setTranscriptMatches([]);
+      } finally {
+        if (!cancelled) setSearchingTranscripts(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  // 検索結果の発言をクリック → そのエピソードをその位置から再生
+  const playFromTranscriptMatch = async (episodeId, startMs) => {
+    const episode = episodes.find((ep) => ep.id === episodeId);
+    if (!episode) return;
+
+    if (currentEpisode?.id !== episodeId) {
+      await playEpisode(episode);
+      // メタデータ読み込み後でないと currentTime を設定できない
+      const audio = audioRef.current;
+      if (audio) {
+        const seek = () => {
+          audio.currentTime = startMs / 1000;
+          setCurrentTime(startMs / 1000);
+          audio.removeEventListener('loadedmetadata', seek);
+        };
+        if (audio.readyState >= 1) seek();
+        else audio.addEventListener('loadedmetadata', seek);
+      }
+    } else {
+      handleTranscriptClick(startMs);
+    }
+    setPlayerExpanded(true);
   };
 
   // ポーリング用に最新の値を保持（タイマー再生成を避けるため）
@@ -926,6 +982,14 @@ export default function RadioApp() {
     .transcript-row:hover {
       background-color: #f3f4f6;
     }
+
+    /* 検索結果の発言行 */
+    .match-row {
+      transition: background-color 0.15s ease;
+    }
+    .match-row:hover {
+      background-color: #eef2ff;
+    }
     .transcript-active {
       background-color: #f0fdf4 !important;
       border-left-color: #22c55e !important;
@@ -1167,7 +1231,7 @@ export default function RadioApp() {
               <Search size={20} style={styles.searchIcon} />
               <input
                 type="text"
-                placeholder="エピソードを検索..."
+                placeholder="エピソードと発言を検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 style={styles.searchInput}
@@ -1182,6 +1246,37 @@ export default function RadioApp() {
                 <Music size={48} style={{ color: '#d1d5db' }} />
               )}
             </section>
+
+            {/* 文字起こし内の一致（タイトル・説明に無くても発言から辿れる） */}
+            {searchQuery.trim().length >= 2 && (searchingTranscripts || transcriptMatches.length > 0) && (
+              <section style={styles.section}>
+                <h2 style={styles.sectionTitle}>
+                  <MessageSquare size={18} style={{ verticalAlign: '-3px', marginRight: '0.4rem', color: '#4f46e5' }} />
+                  文字起こし内の一致
+                  {searchingTranscripts && <span style={styles.searchingLabel}>検索中...</span>}
+                </h2>
+
+                <div style={styles.matchList}>
+                  {transcriptMatches.map((result) => (
+                    <div key={result.id} style={styles.matchGroup}>
+                      <p style={styles.matchEpisodeTitle}>{result.title}</p>
+                      {result.matches.map((match, i) => (
+                        <button
+                          key={i}
+                          onClick={() => playFromTranscriptMatch(result.id, match.start)}
+                          className="match-row"
+                          style={styles.matchRow}
+                          title="この位置から再生"
+                        >
+                          <span style={styles.matchTime}>{formatTime(match.start / 1000)}</span>
+                          <span style={styles.matchText}>{match.text}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
         )}
 
@@ -2111,6 +2206,50 @@ const styles = {
     color: '#6b7280',
     fontWeight: '500',
     margin: 0,
+  },
+  searchingLabel: {
+    marginLeft: '0.6rem',
+    fontSize: '0.8rem',
+    fontWeight: '400',
+    color: '#9ca3af',
+  },
+  matchList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1rem',
+  },
+  matchGroup: {
+    backgroundColor: '#fff',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    padding: '0.75rem 1rem',
+  },
+  matchEpisodeTitle: {
+    margin: '0 0 0.5rem',
+    fontSize: '0.9rem',
+    fontWeight: '700',
+    color: '#111827',
+  },
+  matchRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.6rem',
+    width: '100%',
+    padding: '0.4rem 0.5rem',
+    textAlign: 'left',
+    background: 'transparent',
+    borderRadius: '8px',
+    fontSize: '0.85rem',
+    lineHeight: 1.5,
+  },
+  matchTime: {
+    flexShrink: 0,
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: '600',
+    color: '#4f46e5',
+  },
+  matchText: {
+    color: '#374151',
   },
   resumeBadge: {
     display: 'inline-block',
