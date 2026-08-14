@@ -42,6 +42,15 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
     };
   }, [episode.id]);
 
+  // Escape で閉じる（閉じる手段が右上の × だけだった）
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   // 保存処理
   const handleSave = async () => {
     if (isLoading) return;
@@ -122,8 +131,18 @@ export function EditEpisodeModal({ episode, onClose, onSave }) {
   };
 
   return (
-    <div style={modalStyles.overlay}>
-      <div style={modalStyles.container}>
+    <div
+      style={modalStyles.overlay}
+      onMouseDown={(e) => {
+        // オーバーレイ自体をクリックしたときだけ閉じる
+        // （内側でドラッグ選択して外側で離した場合に閉じないよう mousedown を見る）
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="エピソード編集"
+    >
+      <div style={modalStyles.container} onMouseDown={(e) => e.stopPropagation()}>
         
         {/* ヘッダー */}
         <div style={modalStyles.header}>
